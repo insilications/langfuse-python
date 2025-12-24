@@ -750,13 +750,23 @@ def _get_langfuse_data_from_default_response(
 
     elif resource.object == "Responses" or resource.object == "AsyncResponses":
         output = response.get("output", {})
+        tools = response.get("tools", {})
 
         if not isinstance(output, list):
-            completion = output
+            if tools:
+                completion = {"output": [output], "tools": tools}
+            else:
+                completion = output
         elif len(output) > 1:
-            completion = output
+            if tools:
+                completion = {"output": output, "tools": tools}
+            else:
+                completion = output
         elif len(output) == 1:
-            completion = output[0]
+            if tools:
+                completion = {"output": output[0], "tools": tools}
+            else:
+                completion = output
 
     elif resource.type == "chat":
         choices = response.get("choices", [])
