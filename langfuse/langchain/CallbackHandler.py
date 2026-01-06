@@ -632,11 +632,11 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 "on_chat_model_start", run_id, parent_run_id, messages=messages
             )
 
-            flat_messages: Iterable[BaseMessage] = chain.from_iterable(messages)
-
-            coalesced_prompts: List[Dict[str, Any]] = [
-                m for msg in flat_messages for m in self._convert_message_to_dict2(msg)
-            ]
+            # flat_messages: Iterable[BaseMessage] = chain.from_iterable(messages)
+            #
+            # coalesced_prompts: List[Dict[str, Any]] = [
+            #     m for msg in flat_messages for m in self._convert_message_to_dict2(msg)
+            # ]
 
             self.__on_llm_action(
                 serialized,
@@ -647,8 +647,12 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                         [self._create_message_dicts(m) for m in messages]
                     ),
                 ),
-                coalesced_prompts,
-                # [self._create_message_dicts2(m) for m in messages],
+                cast(
+                    List,
+                    _flatten_comprehension(
+                        [self._create_message_dicts2(m) for m in messages]
+                    ),
+                ),
                 parent_run_id,
                 tags=tags,
                 metadata=metadata,
@@ -1076,11 +1080,12 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
         )
 
     def _convert_message_to_dict2(self, message: BaseMessage) -> Dict[str, Any]:
-        message_dict_list = []
         # assistant message
         if isinstance(message, HumanMessage):
-            # message_dict_list.append({"role": "user", "content": message.content})
-            message_dict_list.append("type": "human", "content": {"role": "user", "content": message.content})
+            message_dict: Dict[str, Any] = {
+                "type": "human",
+                "content": {"role": "user", "content": message.content},
+            }
         elif isinstance(message, AIMessage):
             reasoning_blocks = {}
             # tool_call_blocks = {}
@@ -1165,7 +1170,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             for txt in text_blocks.values():
                 content.append(txt)
 
-            message_dict_list.append("type": "ai", "content": content)
+            message_dict: Dict[str, Any] = {"type": "ai", "content": content}
 
             # rich.print(
             #     f"_convert_message_to_dict2 - message_dict_list:\n{message_dict_list}"
@@ -1196,36 +1201,38 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             #     message_dict["tool_calls"] = message.tool_calls
 
         elif isinstance(message, SystemMessage):
-            # message_dict_list.append({"role": "system", "content": message.content})
-            message_dict_list.append("type": "system", "content": {"role": "system", "content": message.content})
+            message_dict: Dict[str, Any] = {
+                "type": "system",
+                "content": {"role": "system", "content": message.content},
+            }
         elif isinstance(message, ToolMessage):
-            # message_dict_list.append(
-            #     {
-            #         "role": "tool",
-            #         "content": message.content,
-            #         "tool_call_id": message.tool_call_id,
-            #     }
-            # )
-            message_dict_list.append("type": "tool", "content": {
+            message_dict: Dict[str, Any] = {
+                "type": "tool",
+                "content": {
                     "role": "tool",
                     "content": message.content,
                     "tool_call_id": message.tool_call_id,
-                })
+                },
+            }
         elif isinstance(message, FunctionMessage):
-            message_dict_list.append({"role": "function", "content": message.content})
+            message_dict: Dict[str, Any] = {
+                "type": "function",
+                "content": {"role": "function", "content": message.content},
+            }
         elif isinstance(message, ChatMessage):
-            message_dict_list.append({"role": message.role, "content": message.content})
+            message_dict: Dict[str, Any] = {
+                "type": "function",
+                "content": {"role": message.role, "content": message.content},
+            }
         else:
             raise ValueError(f"Got unknown type {message}")
         if "name" in message.additional_kwargs:
-            # message_dict["name"] = message.additional_kwargs["name"]
-            message_dict_list.append({"name": message.additional_kwargs["name"]})
+            message_dict["name"] = message.additional_kwargs["name"]
 
         if message.additional_kwargs:
-            # message_dict["additional_kwargs"] = message.additional_kwargs  # type: ignore+
-            message_dict_list.append({"additional_kwargs": message.additional_kwargs})
+            message_dict["additional_kwargs"] = message.additional_kwargs  # type: ignore
 
-        return message_dict_list
+        return message_dict
 
     def _convert_message_to_dict(self, message: BaseMessage) -> Dict[str, Any]:
         # assistant message
