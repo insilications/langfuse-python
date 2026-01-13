@@ -1,3 +1,4 @@
+import uuid
 from contextvars import Token
 from typing import (
     Any,
@@ -10,14 +11,14 @@ from typing import (
     Type,
     Union,
     cast,
-    Iterable,
 )
-from itertools import chain
 from uuid import UUID
 
 import pydantic
+import rich
 from opentelemetry import context, trace
 from opentelemetry.context import _RUNTIME_CONTEXT
+from rich.pretty import pprint
 
 from langfuse._client.attributes import LangfuseOtelSpanAttributes
 from langfuse._client.client import Langfuse
@@ -34,9 +35,6 @@ from langfuse._utils import _get_timestamp
 from langfuse.langchain.utils import _extract_model_name
 from langfuse.logger import langfuse_logger
 from langfuse.types import TraceContext
-import json
-import rich
-import uuid
 
 try:
     import langchain
@@ -56,6 +54,7 @@ try:
             HumanMessage,
             SystemMessage,
             ToolMessage,
+            content,
         )
         from langchain_core.outputs import ChatGeneration, LLMResult
 
@@ -74,6 +73,7 @@ try:
             HumanMessage,
             SystemMessage,
             ToolMessage,
+            content,
         )
         from langchain_core.outputs import (
             ChatGeneration,
@@ -85,6 +85,17 @@ except ImportError:
         "Please install langchain to use the Langfuse langchain integration: 'pip install langchain'"
     )
 
+_LANGCHAIN_TO_OPEN_RESPONSES_TYPES: dict[tuple[type[BaseMessage], str], str] = {
+    (SystemMessage, "text"): "input_text",
+    (SystemMessage, "image"): "input_image",
+    (HumanMessage, "text"): "input_text",
+    (HumanMessage, "image"): "input_image",
+    (AIMessage, "text"): "output_text",
+    (ChatMessage, "text"): "text",
+    (ChatMessage, "image"): "text",
+}
+"""Mapping from LangChain message content types and content kinds to Open Responses content types."""
+
 LANGSMITH_TAG_HIDDEN: str = "langsmith:hidden"
 CONTROL_FLOW_EXCEPTION_TYPES: Set[Type[BaseException]] = set()
 
@@ -94,14 +105,6 @@ try:
     CONTROL_FLOW_EXCEPTION_TYPES.add(GraphBubbleUp)
 except ImportError:
     pass
-
-
-def clean_serializer(obj):
-    if hasattr(obj, "model_dump"):
-        return obj.model_dump()  # Pydantic v2 (Modern LangChain)
-    if hasattr(obj, "dict"):
-        return obj.dict()  # Pydantic v1 (Older LangChain)
-    return str(obj)  # Fallback for other types
 
 
 class LangchainCallbackHandler(LangchainBaseCallbackHandler):
@@ -361,6 +364,28 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
             self._attach_observation(run_id, span)
 
+            span_name = span._otel_span._name
+            parent_span_id = None
+            parent_span_name = None
+            if parent_run_id and parent_run_id in self.runs:
+                parent_span_id = self.runs[parent_run_id].id
+                parent_span_name = self.runs[parent_run_id]._otel_span._name
+            rich.print(
+                f"\n on_chain_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - inputs:\n{inputs}\n"
+            )
+            rich.print(
+                f"\n on_chain_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - serialized:\n{serialized}\n"
+            )
+            rich.print(
+                f"\n on_chain_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - tags:\n{tags}\n"
+            )
+            rich.print(
+                f"\n on_chain_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - metadata:\n{metadata}\n"
+            )
+            rich.print(
+                f"\n on_chain_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - kwargs:\n{kwargs}\n"
+            )
+
             if parent_run_id is None:
                 span.update_trace(
                     **(
@@ -563,6 +588,32 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             span = self._detach_observation(run_id)
 
             if span is not None:
+                # self.id = self._langfuse_client._get_otel_span_id(otel_span)
+                span_name = span._otel_span._name
+                parent_span_id = None
+                parent_span_name = None
+                if parent_run_id and parent_run_id in self.runs:
+                    parent_span_id = self.runs[parent_run_id].id
+                    parent_span_name = self.runs[parent_run_id]._otel_span._name
+                rich.print(
+                    f"\n on_chain_end - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - outputs:\n{outputs}\n"
+                )
+                rich.print(
+                    f"\n on_chain_end - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - kwargs:\n{kwargs}\n"
+                )
+
+                otel_span = span._otel_span
+                span_attributes = otel_span._format_attributes(otel_span._attributes)
+                # span_input = span_attributes.get("input")
+                # rich.inspect(span, methods=True, private=True, dunder=True, all=True)
+                rich.print(f"\n span_input:\n{span_attributes}")
+                rich.print(f"\n outputs:\n{outputs}")
+                # if span_attributes is not None:
+
+                # result["messages"][-1]
+                # messages = outputs.get("messages")
+                # if isinstance(messages, list):
+                # outputs["messages"] = [messages[-1]]
                 span.update(
                     output=outputs,
                     input=kwargs.get("inputs"),
@@ -638,26 +689,22 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             #     m for msg in flat_messages for m in self._convert_message_to_dict2(msg)
             # ]
 
+            rich.print("\n--- START on_chat_model_start ---\n")
             self.__on_llm_action(
                 serialized,
                 run_id,
                 cast(
                     List,
-                    _flatten_comprehension(
-                        [self._create_message_dicts(m) for m in messages]
-                    ),
-                ),
-                cast(
-                    List,
-                    _flatten_comprehension(
-                        [self._create_message_dicts2(m) for m in messages]
-                    ),
+                    _flatten_comprehension([
+                        self._create_message_dicts(m) for m in messages
+                    ]),
                 ),
                 parent_run_id,
                 tags=tags,
                 metadata=metadata,
                 **kwargs,
             )
+            rich.print("\n--- END on_chat_model_start ---\n")
         except Exception as e:
             langfuse_logger.exception(e)
 
@@ -681,7 +728,6 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             self.__on_llm_action(
                 serialized,
                 run_id,
-                cast(List, prompts[0] if len(prompts) == 1 else prompts),
                 cast(List, prompts[0] if len(prompts) == 1 else prompts),
                 parent_run_id,
                 tags=tags,
@@ -714,20 +760,56 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             if not meta:
                 meta = {}
 
-            meta.update(
-                {key: value for key, value in kwargs.items() if value is not None}
-            )
+            meta.update({
+                key: value for key, value in kwargs.items() if value is not None
+            })
 
             observation_type = self._get_observation_type_from_serialized(
                 serialized, "tool", **kwargs
             )
 
+            # what is this used for?
+            input_list = self._convert_tool_start_to_input_list(
+                input_str, serialized, **kwargs
+            )
+
             span = self._get_parent_observation(parent_run_id).start_observation(
                 name=self.get_langchain_run_name(serialized, **kwargs),
                 as_type=observation_type,
-                input=input_str,
+                # input=input_str,
+                input=input_list,
                 metadata=meta,
                 level="DEBUG" if tags and LANGSMITH_TAG_HIDDEN in tags else None,
+            )
+
+            span_name = span._otel_span._name
+            parent_span_id = None
+            parent_span_name = None
+            if parent_run_id and parent_run_id in self.runs:
+                parent_span_id = self.runs[parent_run_id].id
+                parent_span_name = self.runs[parent_run_id]._otel_span._name
+            rich.print(
+                f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - type(input_str): {type(input_str)} - input_str:\n{input_str}\n"
+            )
+
+            rich.print(
+                f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - type(input_list): {type(input_list)} - input_list:\n{input_list}\n"
+            )
+
+            rich.print(
+                f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - serialized:\n{serialized}\n"
+            )
+            rich.print(
+                f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - tags:\n{tags}\n"
+            )
+            rich.print(
+                f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - metadata:\n{metadata}\n"
+            )
+            rich.print(
+                f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - meta:\n{meta}\n"
+            )
+            rich.print(
+                f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - kwargs:\n{kwargs}\n"
             )
 
             self._attach_observation(run_id, span)
@@ -817,6 +899,19 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                     input=kwargs.get("inputs"),
                 ).end()
 
+                span_name = observation._otel_span._name
+                parent_span_id = None
+                parent_span_name = None
+                if parent_run_id and parent_run_id in self.runs:
+                    parent_span_id = self.runs[parent_run_id].id
+                    parent_span_name = self.runs[parent_run_id]._otel_span._name
+                rich.print(
+                    f"\n on_tool_end - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {observation.id} - output:\n{output}\n"
+                )
+                rich.print(
+                    f"\n on_tool_end - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {observation.id} - kwargs:\n{kwargs}\n"
+                )
+
         except Exception as e:
             langfuse_logger.exception(e)
 
@@ -848,7 +943,6 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
         serialized: Optional[Dict[str, Any]],
         run_id: UUID,
         prompts: List[Any],
-        prompts2: List[Any],
         parent_run_id: Optional[UUID] = None,
         tags: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -857,11 +951,13 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
         self._child_to_parent_run_id_map[run_id] = parent_run_id
 
         try:
-            tools = kwargs.get("invocation_params", {}).get("tools", None)
-            if tools and isinstance(tools, list):
-                prompts.extend([{"role": "tool", "content": tool} for tool in tools])
-            if tools and isinstance(tools, list):
-                prompts2.extend([{"role": "tool", "content": tool} for tool in tools])
+            # tools = kwargs.get("invocation_params", {}).get("tools", None)
+            # if tools and isinstance(tools, list):
+            #     prompts.extend([{"role": "tool", "content": tool} for tool in tools])
+            input_data: dict[str, list[Any]] = {"messages": prompts}
+            invoked_tools = kwargs.get("invocation_params", {}).get("tools", None)
+            if invoked_tools and isinstance(invoked_tools, list):
+                input_data["tools"] = invoked_tools
 
             model_name = self._parse_model_and_log_errors(
                 serialized=serialized, metadata=metadata, kwargs=kwargs
@@ -887,7 +983,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             content = {
                 "name": self.get_langchain_run_name(serialized, **kwargs),
                 # "input": prompts,
-                "input": prompts2,
+                "input": input_data,
                 "metadata": self.__join_tags_and_metadata(
                     tags,
                     metadata,
@@ -901,10 +997,14 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 "prompt": registered_prompt,
             }
 
-            # rich.print(
-            #     f"prompts:\n{json.dumps(prompts, indent=2, default=clean_serializer)}"
-            # )
-            rich.print(f"prompts2:\n{prompts2}")
+            rich.print("__on_llm_action - input_data:\n")
+            pprint(
+                input_data,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+
             generation = self._get_parent_observation(parent_run_id).start_observation(
                 as_type="generation", **content
             )  # type: ignore
@@ -991,11 +1091,20 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 "on_llm_end", run_id, parent_run_id, response=response, kwargs=kwargs
             )
             response_generation = response.generations[-1][-1]
+            rich.print("\n--- START on_llm_end ---\n")
             extracted_response = (
                 self._convert_message_to_dict(response_generation.message)
                 if isinstance(response_generation, ChatGeneration)
                 else _extract_raw_response(response_generation)
             )
+            rich.print("on_llm_end - extracted_response:\n")
+            pprint(
+                extracted_response,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print("\n--- END on_llm_end ---\n")
 
             llm_usage = _parse_usage(response)
 
@@ -1004,21 +1113,9 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
             generation = self._detach_observation(run_id)
 
-            extracted_response2 = (
-                self._convert_message_to_dict2(response_generation.message)
-                if isinstance(response_generation, ChatGeneration)
-                else _extract_raw_response(response_generation)
-            )
-
-            # rich.print(
-            #     f"extracted_response:\n{json.dumps(extracted_response, indent=2, default=clean_serializer)}"
-            # )
-            rich.print(f"extracted_response2:\n{extracted_response2}")
-
             if generation is not None:
                 generation.update(
-                    # output=extracted_response,
-                    output=extracted_response2,
+                    output=extracted_response,
                     usage=llm_usage,
                     usage_details=llm_usage,
                     input=kwargs.get("inputs"),
@@ -1079,6 +1176,28 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             else None
         )
 
+    # what is this used for?
+    def _convert_tool_start_to_input_list(
+        self,
+        input_str: str,
+        serialized: Dict[str, Any] | None,
+        name: str | None = None,
+        tool_call_id: str | None = None,
+        **kwargs: object,
+    ) -> List[Dict[str, Any]]:
+        tool_call_block = {"id": tool_call_id, "type": "tool_call"}
+        tool_call_block["arguments"] = input_str
+        if name is not None:
+            tool_call_block["name"] = name
+        elif serialized is not None and "name" in serialized:
+            tool_call_block["name"] = str(serialized["name"])
+        message_dict: Dict[str, Any] = {
+            "role": "assistant",
+            "content": [tool_call_block],
+        }
+
+        return [message_dict]
+
     def _convert_message_to_dict2(self, message: BaseMessage) -> Dict[str, Any]:
         # assistant message
         if isinstance(message, HumanMessage):
@@ -1101,9 +1220,10 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                         txt_block = text_blocks[txt_id]
                         txt_text = content_block.get("text")
                         if txt_text is not None:
-                            txt_block["content"].append(
-                                {"type": "text", "text": txt_text}
-                            )
+                            txt_block["content"].append({
+                                "type": "text",
+                                "text": txt_text,
+                            })
             content = []
             for txt in text_blocks.values():
                 content.append(txt)
@@ -1148,9 +1268,10 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
                         rs_reasoning = content_block.get("reasoning")
                         if rs_reasoning is not None:
-                            rs_block["summary"].append(
-                                {"type": "summary_text", "text": rs_reasoning}
-                            )
+                            rs_block["summary"].append({
+                                "type": "summary_text",
+                                "text": rs_reasoning,
+                            })
                 elif content_block_type == "tool_call":
                     tool_call_id = content_block.get("id", f"call_{uuid.uuid4()}")
                     tool_call_block = {"id": tool_call_id, "type": "tool_call"}
@@ -1181,9 +1302,10 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                         txt_block = text_blocks[txt_id]
                         txt_text = content_block.get("text")
                         if txt_text is not None:
-                            txt_block["content"].append(
-                                {"type": "text", "text": txt_text}
-                            )
+                            txt_block["content"].append({
+                                "type": "text",
+                                "text": txt_text,
+                            })
 
             content = []
             for rs in reasoning_blocks.values():
@@ -1222,9 +1344,10 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                         txt_block = text_blocks[txt_id]
                         txt_text = content_block.get("text")
                         if txt_text is not None:
-                            txt_block["content"].append(
-                                {"type": "text", "text": txt_text}
-                            )
+                            txt_block["content"].append({
+                                "type": "text",
+                                "text": txt_text,
+                            })
             content = []
             for txt in text_blocks.values():
                 content.append(txt)
@@ -1255,6 +1378,8 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             #     "content": content,
             #     "tool_call_id": tool_call_id,
             # }
+            # rich.print("ToolMessage:\n")
+            # rich.inspect(message, methods=False, private=False, dunder=False)
             message_dict: Dict[str, Any] = {
                 "role": "tool_message",
                 # "content": message.content_blocks,
@@ -1267,6 +1392,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 ],
                 # PROBABLY UNNECESSARY
                 "tool_call_id": message.tool_call_id,
+                "name": message.name,
             }
 
             # rich.print("MESSAGE START\n")
@@ -1308,32 +1434,165 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
         return message_dict
 
-    def _convert_message_to_dict(self, message: BaseMessage) -> Dict[str, Any]:
+    def _convert_message_to_dict(self, message: BaseMessage) -> dict[str, Any]:
+        """
+        The `content` attribute passes through the raw, provider-native format.
+        The new `content_blocks` attribute provides a standardized representation of all message content types, regardless
+        of provider (OpenAI, Anthropic, Gemini, etc.). It is fully compatible with existing LangChain applications.
+
+        https://docs.langchain.com/oss/python/langchain/messages#standard-content-blocks
+        """
+        rich.print("\n--- START _convert_message_to_dict ---\n")
+        message_dict: Dict[str, Any] = {}
+
         # assistant message
         if isinstance(message, HumanMessage):
-            message_dict: Dict[str, Any] = {"role": "user", "content": message.content}
-        elif isinstance(message, AIMessage):
-            message_dict = {"role": "assistant", "content": message.content}
+            # rich.print(f"message:\n")
+            # pprint(
+            #     message,
+            #     expand_all=True,
+            #     indent_guides=False,
+            #     max_string=2000,
+            # )
+            # rich.print(f"message.content:\n")
+            # pprint(
+            #     message.content,
+            #     expand_all=True,
+            #     indent_guides=False,
+            #     max_string=2000,
+            # )
+            # rich.print(f"message.content_blocks:\n")
+            # pprint(
+            #     message.content_blocks,
+            #     expand_all=True,
+            #     indent_guides=False,
+            #     max_string=2000,
+            # )
 
-            if (
-                hasattr(message, "tool_calls")
-                and message.tool_calls is not None
-                and len(message.tool_calls) > 0
-            ):
-                message_dict["tool_calls"] = message.tool_calls
+            content: List[Any] = _consolidate_message_content_blocks(
+                message.content_blocks, HumanMessage, "user"
+            )
+            message_dict = {"type": "human", "role": "user", "content": content}
+
+            rich.print("\n===== HumanMessage ===== EITA")
+            rich.print(f"message_dict:\n")
+            pprint(
+                message_dict,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print("==========================")
+
+        elif isinstance(message, AIMessage):
+            rich.print(f"message:\n")
+            pprint(
+                message,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print(f"message.content:\n")
+            pprint(
+                message.content,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print(f"message.content_blocks:\n")
+            pprint(
+                message.content_blocks,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+
+            content: List[Any] = _consolidate_message_content_blocks(
+                message.content_blocks, AIMessage, "assistant"
+            )
+            message_dict = {"type": "ai", "role": "assistant", "content": content}
+
+            rich.print("\n===== AIMessage ===== EITA")
+            rich.print(f"message_dict:\n")
+            pprint(
+                message_dict,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print("==========================")
 
         elif isinstance(message, SystemMessage):
-            message_dict = {"role": "system", "content": message.content}
-        elif isinstance(message, ToolMessage):
-            message_dict = {
-                "role": "tool",
-                "content": message.content,
-                "tool_call_id": message.tool_call_id,
-            }
-        elif isinstance(message, FunctionMessage):
-            message_dict = {"role": "function", "content": message.content}
+            content: List[Any] = _consolidate_message_content_blocks(
+                message.content_blocks, SystemMessage, "system"
+            )
+            message_dict = {"type": "system", "role": "system", "content": content}
+
+            rich.print("\n===== SystemMessage ===== EITA")
+            rich.print(f"message_dict:\n")
+            pprint(
+                message_dict,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print("==========================")
+
+        elif isinstance(message, ToolMessage | FunctionMessage):
+            rich.print(f"message:\n")
+            pprint(
+                message,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print(f"message.content:\n")
+            pprint(
+                message.content,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print(f"message.content_blocks:\n")
+            pprint(
+                message.content_blocks,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+
+            message_dict = _consolidate_tool_message_content_blocks(message)
+
+            rich.print("\n===== ToolMessage | FunctionMessage ===== EITA")
+            rich.print(f"message_dict:\n")
+            pprint(
+                message_dict,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+
+            rich.print("==========================")
         elif isinstance(message, ChatMessage):
-            message_dict = {"role": message.role, "content": message.content}
+            role: str = message.role
+            content: List[Any] = _consolidate_message_content_blocks(
+                message.content_blocks, ChatMessage, message.role
+            )
+            message_dict = {
+                "type": "chat",
+                "role": role,
+                "content": content,
+            }
+
+            rich.print("\n===== ChatMessage ===== EITA")
+            rich.print(f"message_dict:\n")
+            pprint(
+                message_dict,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print("==========================")
         else:
             raise ValueError(f"Got unknown type {message}")
         if "name" in message.additional_kwargs:
@@ -1342,25 +1601,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
         if message.additional_kwargs:
             message_dict["additional_kwargs"] = message.additional_kwargs  # type: ignore
 
-        # rich.print("MESSAGE START\n")
-        # for i, content_block in enumerate(message.content_blocks):
-        #     rich.print(
-        #         f"_convert_message_to_dict - {i} - content_block:\n{content_block}"
-        #     )
-        # rich.print("\n")
-        # if isinstance(message.content, str):
-        #     rich.print(
-        #         f"_convert_message_to_dict - message.content STR:\n{message.content}"
-        #     )
-        # rich.print("\n")
-        # if isinstance(message.content, list):
-        #     for i, content in enumerate(message.content):
-        #         rich.print(
-        #             f"_convert_message_to_dict - {i} - message.content list:\n{content}"
-        #         )
-        #
-        # rich.print(f"\nmessage_dict:\n{message_dict}")
-        # rich.print("MESSAGE END\n")
+        rich.print("\n--- END _convert_message_to_dict ---\n")
         return message_dict
 
     def _create_message_dicts2(
@@ -1370,7 +1611,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
     def _create_message_dicts(
         self, messages: List[BaseMessage]
-    ) -> List[Dict[str, Any]]:
+    ) -> List[dict[str, Any]]:
         return [self._convert_message_to_dict(m) for m in messages]
 
     def _log_debug_event(
@@ -1648,3 +1889,230 @@ def _strip_langfuse_keys_from_dict(
             metadata_copy.pop(key, None)
 
     return metadata_copy
+
+
+# def _consolidate_tool_message_content_blocks(
+#     tool_message: ToolMessage | FunctionMessage,
+# ) -> dict[str, Any]:
+#     """Consolidate the `content_blocks` attribute of `tool_message` into a list that follows the OpenResponses schema.
+#     https://www.openresponses.org/reference
+
+#     """
+#     tool_message_name: str | None = tool_message.name
+
+#     message_dict: dict[str, Any] = {
+#         "type": "tool_message",
+#         "role": "tool",
+#         "name": tool_message_name,
+#     }
+#     tool_message_consolidated: dict[str, Any] = {
+#         "type": "function_call_output",
+#         "name": tool_message_name,
+#         "id": tool_message.id or f"fc_{uuid.uuid4()}",
+#         "output": [],
+#     }
+
+#     # `FunctionMessage` are an older version of the `ToolMessage` schema, and
+#     # do not contain the `tool_call_id` field.
+#     if tool_call_id := getattr(tool_message, "tool_call_id", None):
+#         tool_message_consolidated["call_id"] = tool_call_id
+#         message_dict["call_id"] = tool_call_id
+
+#     for item in tool_message.content_blocks:
+#         match item["type"]:
+#             case "text":
+#                 text_block: dict[str, str] = {
+#                     "text": item["text"],
+#                     "type": "input_text",
+#                 }
+
+#                 tool_message_consolidated["output"].append(text_block)
+#             case "image":
+#                 img_block: dict[str, str] = {"type": "input_image"}
+
+#                 if url := item.get("url"):
+#                     img_block["image_url"] = url
+#                 elif (base64 := item.get("base64")) and (
+#                     mime_type := item.get("mime_type")
+#                 ):
+#                     img_block["image_url"] = f"data:{mime_type};base64,{base64}"
+
+#                 if detail := item.get("detail"):
+#                     img_block["detail"] = detail
+
+#                 tool_message_consolidated["output"].append(img_block)
+#             case _:
+#                 pass
+
+#     message_dict["content"] = [tool_message_consolidated]
+#     return message_dict
+
+
+def _consolidate_tool_message_content_blocks(
+    tool_message: ToolMessage | FunctionMessage,
+) -> dict[str, Any]:
+    """Consolidate the `content_blocks` attribute of `tool_message` into a list that follows the OpenResponses schema.
+    https://www.openresponses.org/reference
+
+    """
+    message_dict: dict[str, Any] = {
+        "type": "tool",
+        "role": "tool",
+        # "id": tool_message.id or f"fc_{uuid.uuid4()}",
+    }
+    tool_message_consolidated: dict[str, Any] = {
+        "type": "function_call_output",
+        "output": [],
+    }
+
+    if tool_message_name := tool_message.name:
+        tool_message_consolidated["name"] = tool_message_name
+        message_dict["name"] = tool_message_name
+
+    # `FunctionMessage` are an older version of the `ToolMessage` schema, and
+    # do not contain the `tool_call_id` field.
+    if tool_call_id := getattr(tool_message, "tool_call_id", None):
+        tool_message_consolidated["call_id"] = tool_call_id
+        message_dict["tool_call_id"] = tool_call_id
+
+    for item in tool_message.content_blocks:
+        match item["type"]:
+            case "text":
+                text_block: dict[str, str] = {
+                    "text": item["text"],
+                    "type": "input_text",
+                }
+
+                tool_message_consolidated["output"].append(text_block)
+            case "image":
+                img_block: dict[str, str] = {"type": "input_image"}
+
+                if url := item.get("url"):
+                    img_block["image_url"] = url
+                elif (base64 := item.get("base64")) and (
+                    mime_type := item.get("mime_type")
+                ):
+                    img_block["image_url"] = f"data:{mime_type};base64,{base64}"
+
+                if detail := item.get("detail"):
+                    img_block["detail"] = detail
+
+                tool_message_consolidated["output"].append(img_block)
+            case _:
+                pass
+
+    message_dict["content"] = [tool_message_consolidated]
+    return message_dict
+
+
+def _consolidate_message_content_blocks(
+    content_blocks: list[content.ContentBlock],
+    msg_type: type[BaseMessage],
+    role: str,
+) -> list[Any]:
+    """Consolidate the `content_blocks` attribute of the message into a list that follows the OpenResponses schema.
+    https://www.openresponses.org/reference
+
+    """
+    reasoning_blocks_merged_by_id: dict[str, Any] = {}
+    blocks_merged_by_id: dict[str, Any] = {}
+    out: list[Any] = []
+
+    for item in content_blocks:
+        match item["type"]:
+            case "reasoning":
+                item_id: str = item.get("id", f"rs_{uuid.uuid4()}")
+
+                merged: Any | None = reasoning_blocks_merged_by_id.get(item_id)
+                if merged is None:
+                    merged_reasoning_block: dict[str, Any] = {
+                        "type": "reasoning",
+                        "id": item_id,
+                    }
+
+                    if reasoning := item.get("reasoning"):
+                        merged_reasoning_block["summary"] = [
+                            {"text": reasoning, "type": "summary_text"}
+                        ]
+
+                    if encrypted_content := item.get("encrypted_content"):
+                        merged_reasoning_block["encrypted_content"] = encrypted_content
+
+                    out.append(merged_reasoning_block)
+                    reasoning_blocks_merged_by_id[item_id] = merged_reasoning_block
+                elif reasoning := item.get("reasoning"):
+                    merged["summary"].append({
+                        "text": reasoning,
+                        "type": "summary_text",
+                    })
+            case "text":
+                item_id: str = item.get("id", f"msg_{uuid.uuid4()}")
+                text_block: dict[str, str] = {
+                    "text": item["text"],
+                    "type": _LANGCHAIN_TO_OPEN_RESPONSES_TYPES[msg_type, "text"],
+                }
+
+                merged: Any | None = blocks_merged_by_id.get(item_id)
+                if merged is None:
+                    merged_text_block: dict[str, Any] = {
+                        "type": "message",
+                        "role": role,
+                        "id": item_id,
+                        "content": [text_block],
+                    }
+
+                    out.append(merged_text_block)
+                    blocks_merged_by_id[item_id] = merged_text_block
+                else:
+                    merged["content"].append(text_block)
+            case "image":
+                item_id: str = item.get("id", f"msg_{uuid.uuid4()}")
+                img_block: dict[str, Any] = {
+                    "type": _LANGCHAIN_TO_OPEN_RESPONSES_TYPES[msg_type, "image"]
+                }
+                if image_url := item.get("image_url"):
+                    img_block["image_url"] = image_url
+                elif (base64 := item.get("base64")) and (
+                    mime_type := item.get("mime_type")
+                ):
+                    img_block["image_url"] = f"data:{mime_type};base64,{base64}"
+
+                if detail := item.get("detail"):
+                    img_block["detail"] = detail
+
+                merged: Any | None = blocks_merged_by_id.get(item_id)
+                if merged is None:
+                    merged_block: dict[str, Any] = {
+                        "type": "message",
+                        "role": role,
+                        "id": item_id,
+                        "content": [img_block],
+                    }
+
+                    out.append(merged_block)
+                    blocks_merged_by_id[item_id] = merged_block
+                else:
+                    merged["output"].append(img_block)
+            case "tool_call":
+                call_id: str | None = item["id"]
+                if call_id is None:
+                    call_id = f"call_{uuid.uuid4()}"
+
+                function_call_block: dict[str, Any] = {
+                    "call_id": call_id,
+                    "type": "function_call",
+                    "name": item["name"],
+                    "arguments": item["args"],
+                }
+
+                if (extras := item.get("extras")) and (
+                    item_id := extras.get("item_id")
+                ):
+                    function_call_block["id"] = item_id
+
+                out.append(function_call_block)
+
+            case _:
+                pass
+
+    return out

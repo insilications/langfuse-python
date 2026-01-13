@@ -103,6 +103,11 @@ class TraceContext(TypedDict):
     parent_span_id: NotRequired[str]
 
 
+class KwargsToolStart(TypedDict, total=False):
+    name: str | None
+    tool_call_id: str | None
+
+
 __all__ = [
     "SpanLevel",
     "ScoreDataType",

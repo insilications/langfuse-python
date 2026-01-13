@@ -33,3 +33,5 @@ docs
 tests/mocks/llama-index-storage
 
 *.local.*
+
+langfuse-python.code-workspace

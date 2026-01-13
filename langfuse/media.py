@@ -340,3 +340,22 @@ class LangfuseMedia:
             return obj
 
         return cast(T, traverse(obj, 0))
+
+    def __hash__(self) -> int:
+        # If we have a media_id, use it for the hash
+        if self._media_id is not None:
+            return hash(self._media_id)
+
+        # Fallback to default object identity hash (id(self))
+        return super().__hash__()
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, LangfuseMedia):
+            return NotImplemented
+
+        # If both instances have a media_id, they are equal if the IDs match
+        if self._media_id is not None and other._media_id is not None:
+            return self._media_id == other._media_id
+
+        # If either ID is None, fallback to identity equality (must be the exact same object)
+        return self is other

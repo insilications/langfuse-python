@@ -13,6 +13,7 @@ All span classes provide methods for media processing, attribute management,
 and scoring integration specific to Langfuse's observability platform.
 """
 
+import rich
 import warnings
 from datetime import datetime
 from time import time_ns
@@ -130,6 +131,11 @@ class LangfuseObservationWrapper:
                 LangfuseOtelSpanAttributes.ENVIRONMENT, self._environment
             )
 
+        # if self._otel_span.is_recording():
+        #     rich.print(f"0 is_recording: TRUE - _otel_span:\n{self._otel_span}")
+        # else:
+        #     rich.print(f"0 is_recording: FALSE - _otel_span:\n{self._otel_span}")
+
         # Handle media only if span is sampled
         if self._otel_span.is_recording():
             media_processed_input = self._process_media_and_apply_mask(
@@ -237,6 +243,12 @@ class LangfuseObservationWrapper:
         See Also:
             :func:`langfuse.propagate_attributes`: Recommended replacement
         """
+
+        # if self._otel_span.is_recording():
+        #     rich.print(f"1 is_recording: TRUE - _otel_span:\n{self._otel_span}")
+        # else:
+        #     rich.print(f"1 is_recording: FALSE - _otel_span:\n{self._otel_span}")
+
         if not self._otel_span.is_recording():
             return self
 
@@ -443,6 +455,12 @@ class LangfuseObservationWrapper:
             output: Output data to process and set
             metadata: Metadata to process and set
         """
+
+        # if self.span.is_recording():
+        #     rich.print(f"2 is_recording: TRUE - span:\n{span}")
+        # else:
+        #     rich.print(f"2 is_recording: FALSE - span:\n{span}")
+
         processed_input = self._process_media_and_apply_mask(
             span=span,
             data=input,
@@ -615,6 +633,12 @@ class LangfuseObservationWrapper:
             prompt: Reference to the prompt used (for generation types)
             **kwargs: Additional keyword arguments (ignored)
         """
+
+        # if self._otel_span.is_recording():
+        #     rich.print(f"3 is_recording: TRUE - _otel_span:\n{self._otel_span}")
+        # else:
+        #     rich.print(f"3 is_recording: FALSE - _otel_span:\n{self._otel_span}")
+
         if not self._otel_span.is_recording():
             return self
 
