@@ -337,6 +337,17 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 serialized, "chain", **kwargs
             )
 
+            input_data: dict[str, list[Any]] = {}
+            messages: list[BaseMessage] | None = inputs.get("messages")
+            if messages is None:
+                messages = (inputs.get("state") or {}).get("messages")
+
+            if messages is not None:
+                input_data["messages"] = [
+                    self._convert_message_to_dict(m) for m in messages
+                ]
+                rich.print(f"\n input_data:\n{input_data}\n")
+
             obs = self._get_parent_observation(parent_run_id)
             if isinstance(obs, Langfuse):
                 span = obs.start_observation(
@@ -344,7 +355,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                     name=span_name,
                     as_type=observation_type,
                     metadata=span_metadata,
-                    input=inputs,
+                    input=input_data,
                     level=cast(
                         Literal["DEBUG", "DEFAULT", "WARNING", "ERROR"] | None,
                         span_level,
@@ -355,7 +366,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                     name=span_name,
                     as_type=observation_type,
                     metadata=span_metadata,
-                    input=inputs,
+                    input=input_data,
                     level=cast(
                         Literal["DEBUG", "DEFAULT", "WARNING", "ERROR"] | None,
                         span_level,
@@ -370,6 +381,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             if parent_run_id and parent_run_id in self.runs:
                 parent_span_id = self.runs[parent_run_id].id
                 parent_span_name = self.runs[parent_run_id]._otel_span._name
+
             rich.print(
                 f"\n on_chain_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - inputs:\n{inputs}\n"
             )
@@ -392,7 +404,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                         cast(
                             Any,
                             {
-                                "input": inputs,
+                                "input": input_data,
                                 "name": span_name,
                                 "metadata": span_metadata,
                             },
@@ -1447,27 +1459,27 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
         # assistant message
         if isinstance(message, HumanMessage):
-            # rich.print(f"message:\n")
-            # pprint(
-            #     message,
-            #     expand_all=True,
-            #     indent_guides=False,
-            #     max_string=2000,
-            # )
-            # rich.print(f"message.content:\n")
-            # pprint(
-            #     message.content,
-            #     expand_all=True,
-            #     indent_guides=False,
-            #     max_string=2000,
-            # )
-            # rich.print(f"message.content_blocks:\n")
-            # pprint(
-            #     message.content_blocks,
-            #     expand_all=True,
-            #     indent_guides=False,
-            #     max_string=2000,
-            # )
+            rich.print(f"message:\n")
+            pprint(
+                message,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print(f"message.content:\n")
+            pprint(
+                message.content,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print(f"message.content_blocks:\n")
+            pprint(
+                message.content_blocks,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
 
             content: List[Any] = _consolidate_message_content_blocks(
                 message.content_blocks, HumanMessage, "user"
@@ -1891,88 +1903,33 @@ def _strip_langfuse_keys_from_dict(
     return metadata_copy
 
 
-# def _consolidate_tool_message_content_blocks(
-#     tool_message: ToolMessage | FunctionMessage,
-# ) -> dict[str, Any]:
-#     """Consolidate the `content_blocks` attribute of `tool_message` into a list that follows the OpenResponses schema.
-#     https://www.openresponses.org/reference
-
-#     """
-#     tool_message_name: str | None = tool_message.name
-
-#     message_dict: dict[str, Any] = {
-#         "type": "tool_message",
-#         "role": "tool",
-#         "name": tool_message_name,
-#     }
-#     tool_message_consolidated: dict[str, Any] = {
-#         "type": "function_call_output",
-#         "name": tool_message_name,
-#         "id": tool_message.id or f"fc_{uuid.uuid4()}",
-#         "output": [],
-#     }
-
-#     # `FunctionMessage` are an older version of the `ToolMessage` schema, and
-#     # do not contain the `tool_call_id` field.
-#     if tool_call_id := getattr(tool_message, "tool_call_id", None):
-#         tool_message_consolidated["call_id"] = tool_call_id
-#         message_dict["call_id"] = tool_call_id
-
-#     for item in tool_message.content_blocks:
-#         match item["type"]:
-#             case "text":
-#                 text_block: dict[str, str] = {
-#                     "text": item["text"],
-#                     "type": "input_text",
-#                 }
-
-#                 tool_message_consolidated["output"].append(text_block)
-#             case "image":
-#                 img_block: dict[str, str] = {"type": "input_image"}
-
-#                 if url := item.get("url"):
-#                     img_block["image_url"] = url
-#                 elif (base64 := item.get("base64")) and (
-#                     mime_type := item.get("mime_type")
-#                 ):
-#                     img_block["image_url"] = f"data:{mime_type};base64,{base64}"
-
-#                 if detail := item.get("detail"):
-#                     img_block["detail"] = detail
-
-#                 tool_message_consolidated["output"].append(img_block)
-#             case _:
-#                 pass
-
-#     message_dict["content"] = [tool_message_consolidated]
-#     return message_dict
-
-
 def _consolidate_tool_message_content_blocks(
     tool_message: ToolMessage | FunctionMessage,
 ) -> dict[str, Any]:
-    """Consolidate the `content_blocks` attribute of `tool_message` into a list that follows the OpenResponses schema.
+    """Consolidate the `content_blocks` attribute of `tool_message` into a list that
+    follows the OpenResponses schema.
     https://www.openresponses.org/reference
-
     """
     message_dict: dict[str, Any] = {
         "type": "tool",
         "role": "tool",
-        # "id": tool_message.id or f"fc_{uuid.uuid4()}",
     }
     tool_message_consolidated: dict[str, Any] = {
-        "type": "function_call_output",
-        "output": [],
+        "type": "tool_message",
+        "content": [],
     }
 
     if tool_message_name := tool_message.name:
         tool_message_consolidated["name"] = tool_message_name
         message_dict["name"] = tool_message_name
 
+    if tool_message_id := tool_message.id:
+        message_dict["id"] = tool_message_id
+
     # `FunctionMessage` are an older version of the `ToolMessage` schema, and
     # do not contain the `tool_call_id` field.
     if tool_call_id := getattr(tool_message, "tool_call_id", None):
-        tool_message_consolidated["call_id"] = tool_call_id
+        tool_message_consolidated["tool_call_id"] = tool_call_id
         message_dict["tool_call_id"] = tool_call_id
 
     for item in tool_message.content_blocks:
@@ -1983,7 +1940,7 @@ def _consolidate_tool_message_content_blocks(
                     "type": "input_text",
                 }
 
-                tool_message_consolidated["output"].append(text_block)
+                tool_message_consolidated["content"].append(text_block)
             case "image":
                 img_block: dict[str, str] = {"type": "input_image"}
 
@@ -1997,7 +1954,7 @@ def _consolidate_tool_message_content_blocks(
                 if detail := item.get("detail"):
                     img_block["detail"] = detail
 
-                tool_message_consolidated["output"].append(img_block)
+                tool_message_consolidated["content"].append(img_block)
             case _:
                 pass
 
