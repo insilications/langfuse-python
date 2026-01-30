@@ -158,50 +158,52 @@ class MediaManager:
                 and "base64" in data
                 and "mime_type" in data
             ):
-                if (base64 := data.get("base64")) and (
-                    mime_type := data.get("mime_type")
+                base64: Any = data["base64"]
+                mime_type: Any = data["mime_type"]
+                if (
+                    isinstance(base64, str)
+                    and base64
+                    and isinstance(mime_type, str)
+                    and mime_type
                 ):
-                    base64_data_uri = f"data:{mime_type};base64,{base64}"
+                    base64_data_uri1: str = f"data:{mime_type};base64,{base64}"
                     media = LangfuseMedia(
-                        obj=base64_data_uri,
-                        base64_data_uri=base64_data_uri,
+                        obj=base64_data_uri1,
+                        base64_data_uri=base64_data_uri1,
                     )
+                    img_block: dict[str, Any] = {
+                        "type": "input_image",
+                        "image_url": media,
+                    }
+
                     if media in self._cached_langfuse_media:
                         rich.print(
                             f"\nbase64 CACHED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
                         )
-                        img_block: dict[str, Any] = {
-                            "type": "input_image",
-                            "image_url": media,
-                        }
                         return img_block
-                        # copied = data.copy()
-                        # copied["image_url"] = media
-                        # return copied
-                    else:
-                        self._process_media(
-                            media=media,
-                            trace_id=trace_id,
-                            observation_id=observation_id,
-                            field=field,
-                        )
 
-                        self._cached_langfuse_media.add(media)
+                    self._process_media(
+                        media=media,
+                        trace_id=trace_id,
+                        observation_id=observation_id,
+                        field=field,
+                    )
 
-                        rich.print(
-                            f"\nbase64 ADDED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
-                        )
-                        img_block: dict[str, Any] = {
-                            "type": "input_image",
-                            "image_url": media,
-                        }
-                        return img_block
+                    self._cached_langfuse_media.add(media)
+
+                    rich.print(
+                        f"\nbase64 ADDED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
+                    )
+                    return img_block
 
             if isinstance(data, dict) and "type" in data and "image_url" in data:
-                if base64_data_uri := data.get("image_url"):
+                base64_data_uri2: Any = data["image_url"]
+                if isinstance(base64_data_uri2, str) and base64_data_uri2.startswith(
+                    "data:"
+                ):
                     media = LangfuseMedia(
-                        obj=base64_data_uri,
-                        base64_data_uri=base64_data_uri,
+                        obj=base64_data_uri2,
+                        base64_data_uri=base64_data_uri2,
                     )
 
                     if media in self._cached_langfuse_media:
@@ -211,27 +213,21 @@ class MediaManager:
 
                         data["image_url"] = media
                         return data
-                        # copied = data.copy()
-                        # copied["image_url"] = media
-                        # return copied
-                    else:
-                        self._process_media(
-                            media=media,
-                            trace_id=trace_id,
-                            observation_id=observation_id,
-                            field=field,
-                        )
 
-                        self._cached_langfuse_media.add(media)
+                    self._process_media(
+                        media=media,
+                        trace_id=trace_id,
+                        observation_id=observation_id,
+                        field=field,
+                    )
 
-                        rich.print(
-                            f"\ndata ADDED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
-                        )
-                        data["image_url"] = media
-                        return data
-                        # copied = data.copy()
-                        # copied["image_url"] = media
-                        # return copied
+                    self._cached_langfuse_media.add(media)
+
+                    rich.print(
+                        f"\ndata ADDED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
+                    )
+                    data["image_url"] = media
+                    return data
 
             # Anthropic
             if (
