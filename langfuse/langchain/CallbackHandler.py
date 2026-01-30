@@ -980,12 +980,27 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
         self._child_to_parent_run_id_map[run_id] = parent_run_id
 
         try:
+            model_parameters = self._parse_model_parameters(kwargs)
+            rich.print("__on_llm_action - model_parameters:\n")
+            pprint(
+                model_parameters,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
             # tools = kwargs.get("invocation_params", {}).get("tools", None)
             # if tools and isinstance(tools, list):
             #     prompts.extend([{"role": "tool", "content": tool} for tool in tools])
             input_data: dict[str, list[Any]] = {"messages": prompts}
             invoked_tools = kwargs.get("invocation_params", {}).get("tools", None)
             if invoked_tools and isinstance(invoked_tools, list):
+                rich.print("__on_llm_action - invoked_tools:\n")
+                pprint(
+                    invoked_tools,
+                    expand_all=True,
+                    indent_guides=False,
+                    max_string=2000,
+                )
                 input_data["tools"] = invoked_tools
 
             model_name = self._parse_model_and_log_errors(
@@ -1009,6 +1024,28 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                         current_parent_run_id, None
                     )
 
+            rich.print("__on_llm_action - input_data:\n")
+            pprint(
+                input_data,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print("__on_llm_action - kwargs:\n")
+            pprint(
+                kwargs,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print("__on_llm_action - metadata:\n")
+            pprint(
+                metadata,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+
             content = {
                 "name": self.get_langchain_run_name(serialized, **kwargs),
                 # "input": prompts,
@@ -1022,17 +1059,10 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                     else False,
                 ),
                 "model": model_name,
-                "model_parameters": self._parse_model_parameters(kwargs),
+                # "model_parameters": self._parse_model_parameters(kwargs),
+                "model_parameters": model_parameters,
                 "prompt": registered_prompt,
             }
-
-            rich.print("__on_llm_action - input_data:\n")
-            pprint(
-                input_data,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
 
             generation = self._get_parent_observation(parent_run_id).start_observation(
                 as_type="generation", **content
@@ -1058,6 +1088,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
         return {
             key: value
             for key, value in {
+                "tools": kwargs["invocation_params"].get("tools"),
                 "temperature": kwargs["invocation_params"].get("temperature"),
                 "max_tokens": kwargs["invocation_params"].get("max_tokens"),
                 "max_completion_tokens": kwargs["invocation_params"].get(
