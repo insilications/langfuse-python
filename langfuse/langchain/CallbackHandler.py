@@ -1,15 +1,19 @@
-import json
 import uuid
 from contextvars import Token
 from typing import (
     Any,
     Dict,
+    Iterable,
     List,
     Literal,
+    NotRequired,
     Optional,
+    Required,
     Sequence,
     Set,
     Type,
+    TypedDict,
+    TypeGuard,
     Union,
     cast,
 )
@@ -96,6 +100,15 @@ _LANGCHAIN_TO_OPEN_RESPONSES_TYPES: dict[tuple[type[BaseMessage], str], str] = {
     (ChatMessage, "image"): "text",
 }
 """Mapping from LangChain message content types and content kinds to Open Responses content types."""
+
+
+class ToolDefinition(TypedDict):
+    name: Required[str]
+    description: NotRequired[str | None]
+    parameters: NotRequired[dict[str, Any] | None]
+    strict: NotRequired[bool]
+    type: Literal["function"]
+
 
 LANGSMITH_TAG_HIDDEN: str = "langsmith:hidden"
 CONTROL_FLOW_EXCEPTION_TYPES: Set[Type[BaseException]] = set()
@@ -1089,6 +1102,10 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             key: value
             for key, value in {
                 "tools": kwargs["invocation_params"].get("tools"),
+                "stream": kwargs["invocation_params"].get("stream"),
+                "reasoning": kwargs["invocation_params"].get("reasoning"),
+                "verbosity": kwargs["invocation_params"].get("verbosity"),
+                "include": kwargs["invocation_params"].get("include"),
                 "temperature": kwargs["invocation_params"].get("temperature"),
                 "max_tokens": kwargs["invocation_params"].get("max_tokens"),
                 "max_completion_tokens": kwargs["invocation_params"].get(
@@ -2127,6 +2144,57 @@ def _convert_tool_start_to_input_list(
             }
         ]
     }
+
+
+def _is_tool_invocation_param(obj: Any) -> TypeGuard[ToolDefinition]:
+    if not isinstance(obj, dict):
+        return False
+
+    name: Any | None = obj.get("name")
+    if not isinstance(name, str):
+        return False
+
+    desc: Any | None = obj.get("description")
+    if desc is not None and not isinstance(desc, str):
+        return False
+
+    params: Any | None = obj.get("parameters")
+    if params is not None and not isinstance(params, dict):
+        return False
+
+    strict: Any | None = obj.get("strict")
+    if strict is not None and not isinstance(strict, bool):
+        return False
+
+    return True
+
+
+def _convert_tools_invocation_params_to_open_responses(
+    data: Iterable[Any] | None,
+) -> list[ToolDefinition] | None:
+    """
+    Convert tools invocation params to OpenResponses format.
+    This is needed to support tools invocation in a provider-agnostic way,
+    as different providers have different formats for tools invocation.
+
+    `data` is shaped like: {"type": "function", "function": ToolDefinition}
+    """
+    if data is None:
+        return None
+    out: list[ToolDefinition] = []
+
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != "function":
+            continue
+
+        fn: Any | None = item.get("function")
+        if _is_tool_invocation_param(fn):
+            fn["type"] = "function"
+            out.append(fn)
+
+    return out
 
 
 def clean_serializer(obj: Any) -> Any:
