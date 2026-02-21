@@ -351,22 +351,37 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 serialized, "chain", **kwargs
             )
 
-            # rich.print(
-            #     f"on_chain_start inputs:\n{json.dumps(inputs, indent=2, default=clean_serializer)}\n"
-            # )
-
-            input_data: dict[str, list[Any]] = {}
-            messages: list[BaseMessage] | None = inputs.get("messages")
-
+            messages: list[BaseMessage] | list[dict[str, Any]] | None = inputs.get(
+                "messages"
+            )
             if messages is None:
                 state: dict[str, Any] | None = inputs.get("state")
                 if isinstance(state, dict):
                     messages = state.get("messages")
-
-            if messages is not None:
-                input_data["messages"] = [
-                    self._convert_message_to_dict(m) for m in messages
+                    if messages is not None:
+                        messages = [
+                            self._convert_message_to_dict(m)
+                            for m in messages
+                            if isinstance(m, BaseMessage)
+                        ]
+            else:
+                messages = [
+                    self._convert_message_to_dict(m)
+                    for m in messages
+                    if isinstance(m, BaseMessage)
                 ]
+            # if messages is not None:
+            # messages = [self._convert_message_to_dict(m) for m in messages]
+
+            # if messages is None:
+            # state: dict[str, Any] | None = inputs.get("state")
+            # if isinstance(state, dict):
+            # messages = state.get("messages")
+
+            # if messages is not None:
+            # input_data["messages"] = [
+            # self._convert_message_to_dict(m) for m in messages
+            # ]
 
             obs = self._get_parent_observation(parent_run_id)
             if isinstance(obs, Langfuse):
@@ -375,7 +390,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                     name=span_name,
                     as_type=observation_type,
                     metadata=span_metadata,
-                    input=input_data,
+                    input=inputs,
                     level=cast(
                         Literal["DEBUG", "DEFAULT", "WARNING", "ERROR"] | None,
                         span_level,
@@ -386,7 +401,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                     name=span_name,
                     as_type=observation_type,
                     metadata=span_metadata,
-                    input=input_data,
+                    input=inputs,
                     level=cast(
                         Literal["DEBUG", "DEFAULT", "WARNING", "ERROR"] | None,
                         span_level,
@@ -424,7 +439,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                         cast(
                             Any,
                             {
-                                "input": input_data,
+                                "input": inputs,
                                 "name": span_name,
                                 "metadata": span_metadata,
                             },
@@ -617,25 +632,40 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 "on_chain_end", run_id, parent_run_id, outputs=outputs
             )
 
-            # rich.print(
-            #     f"on_chain_end outputs:\n{json.dumps(outputs, indent=2, default=clean_serializer)}\n"
-            # )
-
             span = self._detach_observation(run_id)
 
             if span is not None:
-                output_data: dict[str, list[Any]] = {}
-                messages: list[BaseMessage] | None = outputs.get("messages")
-
+                messages: list[BaseMessage] | list[dict[str, Any]] | None = outputs.get(
+                    "messages"
+                )
                 if messages is None:
                     state: dict[str, Any] | None = outputs.get("state")
                     if isinstance(state, dict):
                         messages = state.get("messages")
-
-                if messages is not None:
-                    output_data["messages"] = [
-                        self._convert_message_to_dict(m) for m in messages
+                        if messages is not None:
+                            messages = [
+                                self._convert_message_to_dict(m)
+                                for m in messages
+                                if isinstance(m, BaseMessage)
+                            ]
+                else:
+                    messages = [
+                        self._convert_message_to_dict(m)
+                        for m in messages
+                        if isinstance(m, BaseMessage)
                     ]
+                # output_data: dict[str, list[Any]] = {}
+                # messages: list[BaseMessage] | None = outputs.get("messages")
+
+                # if messages is None:
+                #     state: dict[str, Any] | None = outputs.get("state")
+                #     if isinstance(state, dict):
+                #         messages = state.get("messages")
+
+                # if messages is not None:
+                #     output_data["messages"] = [
+                #         self._convert_message_to_dict(m) for m in messages
+                #     ]
 
                 span_name = span._otel_span._name
                 parent_span_id = None
@@ -654,12 +684,12 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 span_attributes = otel_span._format_attributes(otel_span._attributes)
 
                 span.update(
-                    output=output_data,
+                    output=outputs,
                     input=kwargs.get("inputs"),
                 )
 
                 if parent_run_id is None and self.update_trace:
-                    span.update_trace(output=output_data, input=kwargs.get("inputs"))
+                    span.update_trace(output=outputs, input=kwargs.get("inputs"))
 
                 span.end()
 
@@ -830,7 +860,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             )
 
             rich.print(
-                f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - type(input_list): {type(input_data)} - input_list:\n{input_data}\n"
+                f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - type(input_data): {type(input_data)} - input_data:\n{input_data}\n"
             )
 
             rich.print(
@@ -1004,17 +1034,17 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             # tools = kwargs.get("invocation_params", {}).get("tools", None)
             # if tools and isinstance(tools, list):
             #     prompts.extend([{"role": "tool", "content": tool} for tool in tools])
-            input_data: dict[str, list[Any]] = {"messages": prompts}
-            invoked_tools = kwargs.get("invocation_params", {}).get("tools", None)
-            if invoked_tools and isinstance(invoked_tools, list):
-                rich.print("__on_llm_action - invoked_tools:\n")
-                pprint(
-                    invoked_tools,
-                    expand_all=True,
-                    indent_guides=False,
-                    max_string=2000,
-                )
-                input_data["tools"] = invoked_tools
+            # input_data: dict[str, list[Any]] = {"messages": prompts}
+            # invoked_tools = kwargs.get("invocation_params", {}).get("tools", None)
+            # if invoked_tools and isinstance(invoked_tools, list):
+            #     rich.print("__on_llm_action - invoked_tools:\n")
+            #     pprint(
+            #         invoked_tools,
+            #         expand_all=True,
+            #         indent_guides=False,
+            #         max_string=2000,
+            #     )
+            #     input_data["tools"] = invoked_tools
 
             model_name = self._parse_model_and_log_errors(
                 serialized=serialized, metadata=metadata, kwargs=kwargs
@@ -1037,9 +1067,9 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                         current_parent_run_id, None
                     )
 
-            rich.print("__on_llm_action - input_data:\n")
+            rich.print("__on_llm_action - prompts:\n")
             pprint(
-                input_data,
+                prompts,
                 expand_all=True,
                 indent_guides=False,
                 max_string=2000,
@@ -1061,8 +1091,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
             content = {
                 "name": self.get_langchain_run_name(serialized, **kwargs),
-                # "input": prompts,
-                "input": input_data,
+                "input": prompts,
                 "metadata": self.__join_tags_and_metadata(
                     tags,
                     metadata,
@@ -2135,14 +2164,19 @@ def _convert_tool_start_to_input_list(
     elif serialized is not None and "name" in serialized:
         tool_call_block["name"] = str(serialized["name"])
 
+    # return {
+    #     "messages": [
+    #         {
+    #             "type": "ai",
+    #             "role": "assistant",
+    #             "content": [tool_call_block],
+    #         }
+    #     ]
+    # }
     return {
-        "messages": [
-            {
-                "type": "ai",
-                "role": "assistant",
-                "content": [tool_call_block],
-            }
-        ]
+        "type": "ai",
+        "role": "assistant",
+        "content": [tool_call_block],
     }
 
 
