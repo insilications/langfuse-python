@@ -837,14 +837,15 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 serialized, "tool", **kwargs
             )
 
-            input_data = _convert_tool_start_to_input_list(
-                input_str, serialized, **kwargs
-            )
+            # input_data = _convert_tool_start_to_input_list(
+            #     input_str, serialized, **kwargs
+            # )
 
             span = self._get_parent_observation(parent_run_id).start_observation(
                 name=self.get_langchain_run_name(serialized, **kwargs),
                 as_type=observation_type,
-                input=input_data,
+                # input=input_data,
+                input=input_str,
                 metadata=meta,
                 level="DEBUG" if tags and LANGSMITH_TAG_HIDDEN in tags else None,
             )
@@ -859,9 +860,9 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - type(input_str): {type(input_str)} - input_str:\n{input_str}\n"
             )
 
-            rich.print(
-                f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - type(input_data): {type(input_data)} - input_data:\n{input_data}\n"
-            )
+            # rich.print(
+            #     f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - type(input_data): {type(input_data)} - input_data:\n{input_data}\n"
+            # )
 
             rich.print(
                 f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - serialized:\n{serialized}\n"
