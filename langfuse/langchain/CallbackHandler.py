@@ -757,7 +757,13 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             # coalesced_prompts: List[Dict[str, Any]] = [
             #     m for msg in flat_messages for m in self._convert_message_to_dict2(msg)
             # ]
-
+            rich.print("on_chat_model_start - messages:\n")
+            pprint(
+                messages,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
             rich.print("\n--- START on_chat_model_start ---\n")
             self.__on_llm_action(
                 serialized,
@@ -794,6 +800,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             self._log_debug_event(
                 "on_llm_start", run_id, parent_run_id, prompts=prompts
             )
+            rich.print("\n--- START on_llm_start ---\n")
             self.__on_llm_action(
                 serialized,
                 run_id,
@@ -803,6 +810,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 metadata=metadata,
                 **kwargs,
             )
+            rich.print("\n--- END on_llm_start ---\n")
         except Exception as e:
             langfuse_logger.exception(e)
 
@@ -1286,227 +1294,27 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
     def _convert_message_to_dict2(self, message: BaseMessage) -> Dict[str, Any]:
         # assistant message
         if isinstance(message, HumanMessage):
-            text_blocks = {}
-            for i, content_block in enumerate(message.content_blocks):
-                if content_block.get("type") == "text":
-                    txt_id = content_block.get("id", f"msg_{uuid.uuid4()}")
-                    if txt_id not in text_blocks:
-                        txt_block = {
-                            # "role": "user",
-                            "type": "message",
-                        }
-
-                        txt_text = content_block.get("text")
-                        if txt_text is not None:
-                            txt_block["content"] = [{"type": "text", "text": txt_text}]
-
-                        text_blocks[txt_id] = txt_block
-                    else:
-                        txt_block = text_blocks[txt_id]
-                        txt_text = content_block.get("text")
-                        if txt_text is not None:
-                            txt_block["content"].append({
-                                "type": "text",
-                                "text": txt_text,
-                            })
-            content = []
-            for txt in text_blocks.values():
-                content.append(txt)
-            message_dict: Dict[str, Any] = {"role": "user", "content": content}
-
+            message_dict: Dict[str, Any] = {"role": "user", "content": message.content}
         elif isinstance(message, AIMessage):
-            reasoning_blocks = {}
-            # tool_call_blocks = {}
-            tool_call_blocks = []
-            text_blocks = {}
-            for i, content_block in enumerate(message.content_blocks):
-                content_block_type = content_block.get("type")
-                if content_block_type == "reasoning":
-                    rs_id = content_block.get("id", f"rs_{uuid.uuid4()}")
-                    if rs_id not in reasoning_blocks:
-                        rs_block = {
-                            "id": rs_id,
-                            "type": "reasoning",
-                        }
+            message_dict = {"role": "assistant", "content": message.content}
 
-                        rs_reasoning = content_block.get("reasoning")
-                        if rs_reasoning is not None:
-                            rs_block["summary"] = [
-                                {"type": "summary_text", "text": rs_reasoning}
-                            ]
-                        rs_encrypted_content = content_block.get("encrypted_content")
-                        if rs_encrypted_content is not None:
-                            rs_block["encrypted_content"] = rs_encrypted_content
+            if (
+                hasattr(message, "tool_calls")
+                and message.tool_calls is not None
+                and len(message.tool_calls) > 0
+            ):
+                message_dict["tool_calls"] = message.tool_calls
 
-                        reasoning_blocks[rs_id] = rs_block
-                    else:
-                        rs_block = reasoning_blocks[rs_id]
-                        rs_encrypted_content_new = content_block.get(
-                            "encrypted_content"
-                        )
-                        rs_encrypted_content_old = rs_block.get("encrypted_content")
-                        if (
-                            rs_encrypted_content_new is not None
-                            and rs_encrypted_content_old is None
-                        ):
-                            rs_block["encrypted_content"] = rs_encrypted_content_new
-
-                        rs_reasoning = content_block.get("reasoning")
-                        if rs_reasoning is not None:
-                            rs_block["summary"].append({
-                                "type": "summary_text",
-                                "text": rs_reasoning,
-                            })
-                elif content_block_type == "tool_call":
-                    tool_call_id = content_block.get("id", f"call_{uuid.uuid4()}")
-                    tool_call_block = {"id": tool_call_id, "type": "tool_call"}
-
-                    tool_call_name = content_block.get("name")
-                    if tool_call_name is not None:
-                        tool_call_block["name"] = tool_call_name
-                    tool_call_args = content_block.get("args")
-                    if tool_call_args is not None:
-                        tool_call_block["arguments"] = tool_call_args
-
-                    tool_call_blocks.append(tool_call_block)
-                elif content_block_type == "text":
-                    txt_id = content_block.get("id", f"msg_{uuid.uuid4()}")
-                    if txt_id not in text_blocks:
-                        txt_block = {
-                            "id": txt_id,
-                            # "role": "assistant",
-                            "type": "message",
-                        }
-
-                        txt_text = content_block.get("text")
-                        if txt_text is not None:
-                            txt_block["content"] = [{"type": "text", "text": txt_text}]
-
-                        text_blocks[txt_id] = txt_block
-                    else:
-                        txt_block = text_blocks[txt_id]
-                        txt_text = content_block.get("text")
-                        if txt_text is not None:
-                            txt_block["content"].append({
-                                "type": "text",
-                                "text": txt_text,
-                            })
-
-            content = []
-            for rs in reasoning_blocks.values():
-                content.append(rs)
-            for tc in tool_call_blocks:
-                # rich.print(f"_convert_message_to_dict2 - tc:\n{tc}")
-                content.append(tc)
-            for txt in text_blocks.values():
-                content.append(txt)
-
-            message_dict: Dict[str, Any] = {"role": "assistant", "content": content}
-
-            # if (
-            #     hasattr(message, "tool_calls")
-            #     and message.tool_calls is not None
-            #     and len(message.tool_calls) > 0
-            # ):
-            #     message_dict["tool_calls"] = message.tool_calls
         elif isinstance(message, SystemMessage):
-            text_blocks = {}
-            for i, content_block in enumerate(message.content_blocks):
-                if content_block.get("type") == "text":
-                    txt_id = content_block.get("id", f"msg_{uuid.uuid4()}")
-                    if txt_id not in text_blocks:
-                        txt_block = {
-                            # "role": "user",
-                            "type": "message",
-                        }
-
-                        txt_text = content_block.get("text")
-                        if txt_text is not None:
-                            txt_block["content"] = [{"type": "text", "text": txt_text}]
-
-                        text_blocks[txt_id] = txt_block
-                    else:
-                        txt_block = text_blocks[txt_id]
-                        txt_text = content_block.get("text")
-                        if txt_text is not None:
-                            txt_block["content"].append({
-                                "type": "text",
-                                "text": txt_text,
-                            })
-            content = []
-            for txt in text_blocks.values():
-                content.append(txt)
-            message_dict: Dict[str, Any] = {
-                "role": "system",
-                "content": content,
-            }
+            message_dict = {"role": "system", "content": message.content}
         elif isinstance(message, ToolMessage):
-            # tool_msg_blocks = {}
-            # tool_call_id = message.tool_call_id
-            # for i, content_block in enumerate(message.content_blocks):
-            #     if tool_call_id not in tool_msg_blocks:
-            #         tm_block = {
-            #             "type": "tool",
-            #             "tool_call_id": tool_call_id,
-            #         }
-            #
-            #         tm_block["content"] = [content_block]
-            #         tool_msg_blocks[tool_call_id] = tm_block
-            #     else:
-            #         tm_block = tool_msg_blocks[tool_call_id]
-            #         tm_block["content"].append(content_block)
-            # content = []
-            # for tc in tool_msg_blocks.values():
-            #     content.append(tc)
-            # message_dict: Dict[str, Any] = {
-            #     "type": "tool",
-            #     "content": content,
-            #     "tool_call_id": tool_call_id,
-            # }
-            # rich.print("ToolMessage:\n")
-            # rich.inspect(message, methods=False, private=False, dunder=False)
-            message_dict: Dict[str, Any] = {
-                "role": "tool_message",
-                # "content": message.content_blocks,
-                "content": [
-                    {
-                        "type": "tool_message",
-                        "tool_call_id": message.tool_call_id,
-                        "content": message.content_blocks,
-                    }
-                ],
-                # PROBABLY UNNECESSARY
+            message_dict = {
+                "role": "tool",
+                "content": message.content,
                 "tool_call_id": message.tool_call_id,
-                "name": message.name,
             }
-
-            # rich.print("MESSAGE START\n")
-            # for i, content_block in enumerate(message.content_blocks):
-            #     rich.print(f"msg_dict - {i} - content_block:")
-            #     rich.print(content_block)
-            # rich.print("\n")
-            # if isinstance(message.content, str):
-            #     rich.print(f"msg_dict - message.content STR:")
-            #     rich.print(message.content)
-            #
-            # rich.print("\n")
-            # if isinstance(message.content, list):
-            #     for i, content in enumerate(message.content):
-            #         rich.print(f"msg_dict - {i} - message.content list:")
-            #         rich.print(content)
-            #
-            # rich.print(f"\nmessage_dict:")
-            # rich.print(message_dict)
-            # rich.print("MESSAGE END\n")
         elif isinstance(message, FunctionMessage):
-            message_dict: Dict[str, Any] = {
-                "role": "function",
-                "content": message.content_blocks,
-            }
-            # message_dict: Dict[str, Any] = {
-            #     "type": "function",
-            #     "content": {"role": "function", "content": message.content},
-            # }
+            message_dict = {"role": "function", "content": message.content}
         elif isinstance(message, ChatMessage):
             message_dict = {"role": message.role, "content": message.content}
         else:
@@ -1517,6 +1325,118 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
         if message.additional_kwargs:
             message_dict["additional_kwargs"] = message.additional_kwargs  # type: ignore
 
+        return message_dict
+
+    def _convert_message_to_dict3(self, message: BaseMessage) -> dict[str, Any]:
+        """
+        The `content` attribute passes through the raw, provider-native format.
+        The new `content_blocks` attribute provides a standardized representation of all message content types, regardless
+        of provider (OpenAI, Anthropic, Gemini, etc.). It is fully compatible with existing LangChain applications.
+
+        https://docs.langchain.com/oss/python/langchain/messages#standard-content-blocks
+        """
+        rich.print("\n--- START _convert_message_to_dict ---\n")
+        message_dict: Dict[str, Any] = {}
+
+        # assistant message
+        if isinstance(message, HumanMessage):
+            message_dict: Dict[str, Any] = {
+                "role": "user",
+                "content": message.content_blocks,
+            }
+
+            rich.print("\n===== HumanMessage ===== EITA")
+            rich.print("message_dict:\n")
+            pprint(
+                message_dict,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print("==========================")
+
+        elif isinstance(message, AIMessage):
+            message_dict: Dict[str, Any] = {
+                "role": "assistant",
+                "content": message.content_blocks,
+            }
+
+            rich.print("\n===== AIMessage ===== EITA")
+            rich.print("message_dict:\n")
+            pprint(
+                message_dict,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print("==========================")
+
+        elif isinstance(message, SystemMessage):
+            message_dict: Dict[str, Any] = {
+                "role": "system",
+                "content": message.content_blocks,
+            }
+            rich.print("\n===== SystemMessage ===== EITA")
+            rich.print("message_dict:\n")
+            pprint(
+                message_dict,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print("==========================")
+
+        elif isinstance(message, ToolMessage | FunctionMessage):
+            message_dict: Dict[str, Any] = {
+                "role": "tool",
+                "content": message.content_blocks,
+            }
+            rich.print("\n===== ToolMessage | FunctionMessage ===== EITA")
+            rich.print("message_dict:\n")
+            pprint(
+                message_dict,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+
+            rich.print("==========================")
+
+        # elif isinstance(message, FunctionMessage):
+        elif isinstance(message, ChatMessage):
+            role: str = message.role
+            content: List[Any] = _consolidate_message_content_blocks(
+                message.content_blocks, ChatMessage, message.role
+            )
+            message_dict = {
+                "type": "chat",
+                "role": role,
+                "content": content,
+            }
+
+            message_dict: Dict[str, Any] = {
+                "role": "tool",
+                "content": message.content_blocks,
+            }
+
+            rich.print("\n===== ChatMessage ===== EITA")
+            rich.print("message_dict:\n")
+            pprint(
+                message_dict,
+                expand_all=True,
+                indent_guides=False,
+                max_string=2000,
+            )
+            rich.print("==========================")
+        else:
+            raise ValueError(f"Got unknown type {message}")
+        if "name" in message.additional_kwargs:
+            message_dict["name"] = message.additional_kwargs["name"]
+
+        if message.additional_kwargs:
+            message_dict["additional_kwargs"] = message.additional_kwargs  # type: ignore
+
+        rich.print("\n--- END _convert_message_to_dict ---\n")
         return message_dict
 
     def _convert_message_to_dict(self, message: BaseMessage) -> dict[str, Any]:
@@ -1688,11 +1608,6 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
         rich.print("\n--- END _convert_message_to_dict ---\n")
         return message_dict
-
-    def _create_message_dicts2(
-        self, messages: List[BaseMessage]
-    ) -> List[Dict[str, Any]]:
-        return [self._convert_message_to_dict2(m) for m in messages]
 
     def _create_message_dicts(
         self, messages: List[BaseMessage]
