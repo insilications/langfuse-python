@@ -351,37 +351,25 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 serialized, "chain", **kwargs
             )
 
-            messages: list[BaseMessage] | list[dict[str, Any]] | None = inputs.get(
-                "messages"
-            )
-            if messages is None:
-                state: dict[str, Any] | None = inputs.get("state")
-                if isinstance(state, dict):
-                    messages = state.get("messages")
-                    if messages is not None:
-                        messages = [
-                            self._convert_message_to_dict(m)
-                            for m in messages
-                            if isinstance(m, BaseMessage)
-                        ]
-            else:
-                messages = [
-                    self._convert_message_to_dict(m)
-                    for m in messages
-                    if isinstance(m, BaseMessage)
-                ]
-            # if messages is not None:
-            # messages = [self._convert_message_to_dict(m) for m in messages]
-
+            # messages: list[BaseMessage] | list[dict[str, Any]] | None = inputs.get(
+            #     "messages"
+            # )
             # if messages is None:
-            # state: dict[str, Any] | None = inputs.get("state")
-            # if isinstance(state, dict):
-            # messages = state.get("messages")
-
-            # if messages is not None:
-            # input_data["messages"] = [
-            # self._convert_message_to_dict(m) for m in messages
-            # ]
+            #     state: dict[str, Any] | None = inputs.get("state")
+            #     if isinstance(state, dict):
+            #         messages = state.get("messages")
+            #         if messages is not None:
+            #             messages = [
+            #                 self._convert_message_to_dict(m)
+            #                 for m in messages
+            #                 if isinstance(m, BaseMessage)
+            #             ]
+            # else:
+            #     messages = [
+            #         self._convert_message_to_dict(m)
+            #         for m in messages
+            #         if isinstance(m, BaseMessage)
+            #     ]
 
             obs = self._get_parent_observation(parent_run_id)
             if isinstance(obs, Langfuse):
@@ -635,36 +623,24 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             span = self._detach_observation(run_id)
 
             if span is not None:
-                messages: list[BaseMessage] | list[dict[str, Any]] | None = outputs.get(
-                    "messages"
-                )
-                if messages is None:
-                    state: dict[str, Any] | None = outputs.get("state")
-                    if isinstance(state, dict):
-                        messages = state.get("messages")
-                        if messages is not None:
-                            messages = [
-                                self._convert_message_to_dict(m)
-                                for m in messages
-                                if isinstance(m, BaseMessage)
-                            ]
-                else:
-                    messages = [
-                        self._convert_message_to_dict(m)
-                        for m in messages
-                        if isinstance(m, BaseMessage)
-                    ]
-                # output_data: dict[str, list[Any]] = {}
-                # messages: list[BaseMessage] | None = outputs.get("messages")
-
+                # messages: list[BaseMessage] | list[dict[str, Any]] | None = outputs.get(
+                #     "messages"
+                # )
                 # if messages is None:
                 #     state: dict[str, Any] | None = outputs.get("state")
                 #     if isinstance(state, dict):
                 #         messages = state.get("messages")
-
-                # if messages is not None:
-                #     output_data["messages"] = [
-                #         self._convert_message_to_dict(m) for m in messages
+                #         if messages is not None:
+                #             messages = [
+                #                 self._convert_message_to_dict(m)
+                #                 for m in messages
+                #                 if isinstance(m, BaseMessage)
+                #             ]
+                # else:
+                #     messages = [
+                #         self._convert_message_to_dict(m)
+                #         for m in messages
+                #         if isinstance(m, BaseMessage)
                 #     ]
 
                 span_name = span._otel_span._name
@@ -970,13 +946,13 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             observation = self._detach_observation(run_id)
 
             if observation is not None:
-                # _consolidate_tool_message_content_blocks
-                output_data = output
-                if isinstance(output, ToolMessage | FunctionMessage):
-                    output_data = _consolidate_tool_message_content_blocks(output)
+                # output_data = output
+                # if isinstance(output, ToolMessage | FunctionMessage):
+                #     output_data = _consolidate_tool_message_content_blocks(output)
 
                 observation.update(
-                    output=output_data,
+                    output=output,
+                    # output=output_data,
                     input=kwargs.get("inputs"),
                 ).end()
 
@@ -1327,7 +1303,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
         return message_dict
 
-    def _convert_message_to_dict3(self, message: BaseMessage) -> dict[str, Any]:
+    def _convert_message_to_dict(self, message: BaseMessage) -> dict[str, Any]:
         """
         The `content` attribute passes through the raw, provider-native format.
         The new `content_blocks` attribute provides a standardized representation of all message content types, regardless
@@ -1399,23 +1375,12 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 indent_guides=False,
                 max_string=2000,
             )
-
             rich.print("==========================")
 
         # elif isinstance(message, FunctionMessage):
         elif isinstance(message, ChatMessage):
-            role: str = message.role
-            content: List[Any] = _consolidate_message_content_blocks(
-                message.content_blocks, ChatMessage, message.role
-            )
-            message_dict = {
-                "type": "chat",
-                "role": role,
-                "content": content,
-            }
-
             message_dict: Dict[str, Any] = {
-                "role": "tool",
+                "role": message.role,
                 "content": message.content_blocks,
             }
 
@@ -1439,7 +1404,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
         rich.print("\n--- END _convert_message_to_dict ---\n")
         return message_dict
 
-    def _convert_message_to_dict(self, message: BaseMessage) -> dict[str, Any]:
+    def _convert_message_to_dict3(self, message: BaseMessage) -> dict[str, Any]:
         """
         The `content` attribute passes through the raw, provider-native format.
         The new `content_blocks` attribute provides a standardized representation of all message content types, regardless
