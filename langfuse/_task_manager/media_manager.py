@@ -1,9 +1,8 @@
-import json
 import logging
 import os
 import time
 from queue import Empty, Full, Queue
-from typing import Any, Callable, Optional, Set, TypeVar, cast
+from typing import Any, Callable, Optional, TypeVar, cast
 
 import backoff
 import requests
@@ -41,7 +40,7 @@ class MediaManager:
         self._enabled = os.environ.get(
             LANGFUSE_MEDIA_UPLOAD_ENABLED, "True"
         ).lower() not in ("false", "0")
-        self._cached_langfuse_media: Set[LangfuseMedia] = set()
+        self._cached_langfuse_media: set[LangfuseMedia] = set()
 
     def process_next_media_upload(self) -> None:
         try:
@@ -59,57 +58,6 @@ class MediaManager:
                 f"Media upload error: Failed to upload media due to unexpected error. Queue item marked as done. Error: {e}"
             )
             self._queue.task_done()
-
-    def smart_decode(self, data: str) -> Any:
-        """
-        Attempts to decode a string as JSON. Returns original string if decoding fails.
-        Optimized to avoid Exception overhead for obviously non-JSON strings.
-        """
-        # 1. Fast path for empty strings
-        if not data:
-            return data
-
-        # 2. Heuristic Check:
-        # Valid JSON must start with specific characters.
-        # usage of lstrip() allows for leading whitespace which is valid in JSON.
-        # We strip only the left side to keep it cheap.
-        clean_data = data.lstrip()
-
-        if not clean_data:
-            return data
-
-        first_char = clean_data[0]
-
-        # Check against valid JSON starting characters.
-        # Tuple lookup is highly optimized in Python 3.12.
-        # { = object, [ = array, " = string
-        # t/f/n = true/false/null, -/0-9 = numbers
-        if first_char not in (
-            "{",
-            "[",
-            '"',
-            "t",
-            "f",
-            "n",
-            "-",
-            "0",
-            "1",
-            "2",
-            "3",
-            "4",
-            "5",
-            "6",
-            "7",
-            "8",
-            "9",
-        ):
-            return data
-
-        # 3. Decode
-        try:
-            return json.loads(data)
-        except (json.JSONDecodeError, TypeError):
-            return data
 
     def _find_and_process_media(
         self,
@@ -143,23 +91,26 @@ class MediaManager:
 
                 return data
 
-            if isinstance(data, BaseMessage) and data.content:
+            if isinstance(data, BaseMessage):
                 # rich.print(
                 #     f"\n0 BaseMessage - level: {level} - type: {type(data)} - data:\n{data}\n"
                 # )
-                copied: BaseMessage = data.model_copy()
-                content: Any = _process_data_recursively(copied.content, level + 1)
-                copied.content = content
-                return copied
+                message_dict: dict[str, Any] = data.model_dump(
+                    mode="json", exclude={"content"}
+                )
+                message_dict["content"] = data.content_blocks
+                content: Any = _process_data_recursively(
+                    message_dict["content"], level + 1
+                )
+                message_dict["content"] = content
+                return message_dict
 
             if (
                 isinstance(data, dict)
-                and "type" in data
-                and "base64" in data
-                and "mime_type" in data
+                and data.get("type") == "image"
+                and (base64 := data.get("base64"))
+                and (mime_type := data.get("mime_type"))
             ):
-                base64: Any = data["base64"]
-                mime_type: Any = data["mime_type"]
                 if (
                     isinstance(base64, str)
                     and base64
@@ -171,16 +122,14 @@ class MediaManager:
                         obj=base64_data_uri1,
                         base64_data_uri=base64_data_uri1,
                     )
-                    img_block: dict[str, Any] = {
-                        "type": "input_image",
-                        "image_url": media,
-                    }
+
+                    copied_image_content_block = data | {"base64": media}
 
                     if media in self._cached_langfuse_media:
                         rich.print(
                             f"\nbase64 CACHED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
                         )
-                        return img_block
+                        return copied_image_content_block
 
                     self._process_media(
                         media=media,
@@ -192,42 +141,86 @@ class MediaManager:
                     self._cached_langfuse_media.add(media)
 
                     rich.print(
-                        f"\nbase64 ADDED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
+                        f"\nbase64 ADDED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id} - copied_image_content_block: {copied_image_content_block}\n"
                     )
-                    return img_block
+                    return copied_image_content_block
 
-            if isinstance(data, dict) and "type" in data and "image_url" in data:
-                base64_data_uri2: Any = data["image_url"]
-                if isinstance(base64_data_uri2, str) and base64_data_uri2.startswith(
-                    "data:"
-                ):
-                    media = LangfuseMedia(
-                        obj=base64_data_uri2,
-                        base64_data_uri=base64_data_uri2,
-                    )
+            # if (
+            #     isinstance(data, dict)
+            #     and "type" in data
+            #     and "base64" in data
+            #     and "mime_type" in data
+            # ):
+            #     base64: Any = data["base64"]
+            #     mime_type: Any = data["mime_type"]
+            #     if (
+            #         isinstance(base64, str)
+            #         and base64
+            #         and isinstance(mime_type, str)
+            #         and mime_type
+            #     ):
+            #         base64_data_uri1: str = f"data:{mime_type};base64,{base64}"
+            #         media = LangfuseMedia(
+            #             obj=base64_data_uri1,
+            #             base64_data_uri=base64_data_uri1,
+            #         )
+            #         img_block: dict[str, Any] = {
+            #             "type": "input_image",
+            #             "image_url": media,
+            #         }
 
-                    if media in self._cached_langfuse_media:
-                        rich.print(
-                            f"\ndata CACHED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
-                        )
+            #         if media in self._cached_langfuse_media:
+            #             rich.print(
+            #                 f"\nbase64 CACHED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
+            #             )
+            #             return img_block
 
-                        data["image_url"] = media
-                        return data
+            #         self._process_media(
+            #             media=media,
+            #             trace_id=trace_id,
+            #             observation_id=observation_id,
+            #             field=field,
+            #         )
 
-                    self._process_media(
-                        media=media,
-                        trace_id=trace_id,
-                        observation_id=observation_id,
-                        field=field,
-                    )
+            #         self._cached_langfuse_media.add(media)
 
-                    self._cached_langfuse_media.add(media)
+            #         rich.print(
+            #             f"\nbase64 ADDED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
+            #         )
+            #         return img_block
 
-                    rich.print(
-                        f"\ndata ADDED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
-                    )
-                    data["image_url"] = media
-                    return data
+            # if isinstance(data, dict) and "type" in data and "image_url" in data:
+            #     base64_data_uri2: Any = data["image_url"]
+            #     if isinstance(base64_data_uri2, str) and base64_data_uri2.startswith(
+            #         "data:"
+            #     ):
+            #         media = LangfuseMedia(
+            #             obj=base64_data_uri2,
+            #             base64_data_uri=base64_data_uri2,
+            #         )
+
+            #         if media in self._cached_langfuse_media:
+            #             rich.print(
+            #                 f"\ndata CACHED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
+            #             )
+
+            #             data["image_url"] = media
+            #             return data
+
+            #         self._process_media(
+            #             media=media,
+            #             trace_id=trace_id,
+            #             observation_id=observation_id,
+            #             field=field,
+            #         )
+
+            #         self._cached_langfuse_media.add(media)
+
+            #         rich.print(
+            #             f"\ndata ADDED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
+            #         )
+            #         data["image_url"] = media
+            #         return data
 
             # Anthropic
             if (
@@ -293,6 +286,189 @@ class MediaManager:
             return data
 
         return _process_data_recursively(data, 1)
+
+    # def _find_and_process_media(
+    #     self,
+    #     *,
+    #     data: Any,
+    #     trace_id: str,
+    #     observation_id: Optional[str],
+    #     field: str,
+    # ) -> Any:
+    #     if not self._enabled:
+    #         return data
+
+    #     seen = set()
+    #     max_levels = 10
+
+    #     def _process_data_recursively(data: Any, level: int) -> Any:
+    #         if id(data) in seen or level > max_levels:
+    #             return data
+
+    #         seen.add(id(data))
+
+    #         if isinstance(data, LangfuseMedia):
+    #             self._process_media(
+    #                 media=data,
+    #                 trace_id=trace_id,
+    #                 observation_id=observation_id,
+    #                 field=field,
+    #             )
+
+    #             self._cached_langfuse_media.add(data)
+
+    #             return data
+
+    #         if isinstance(data, BaseMessage) and data.content:
+    #             # rich.print(
+    #             #     f"\n0 BaseMessage - level: {level} - type: {type(data)} - data:\n{data}\n"
+    #             # )
+    #             copied: BaseMessage = data.model_copy()
+    #             content: Any = _process_data_recursively(copied.content, level + 1)
+    #             copied.content = content
+    #             return copied
+
+    #         if (
+    #             isinstance(data, dict)
+    #             and "type" in data
+    #             and "base64" in data
+    #             and "mime_type" in data
+    #         ):
+    #             base64: Any = data["base64"]
+    #             mime_type: Any = data["mime_type"]
+    #             if (
+    #                 isinstance(base64, str)
+    #                 and base64
+    #                 and isinstance(mime_type, str)
+    #                 and mime_type
+    #             ):
+    #                 base64_data_uri1: str = f"data:{mime_type};base64,{base64}"
+    #                 media = LangfuseMedia(
+    #                     obj=base64_data_uri1,
+    #                     base64_data_uri=base64_data_uri1,
+    #                 )
+    #                 img_block: dict[str, Any] = {
+    #                     "type": "input_image",
+    #                     "image_url": media,
+    #                 }
+
+    #                 if media in self._cached_langfuse_media:
+    #                     rich.print(
+    #                         f"\nbase64 CACHED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
+    #                     )
+    #                     return img_block
+
+    #                 self._process_media(
+    #                     media=media,
+    #                     trace_id=trace_id,
+    #                     observation_id=observation_id,
+    #                     field=field,
+    #                 )
+
+    #                 self._cached_langfuse_media.add(media)
+
+    #                 rich.print(
+    #                     f"\nbase64 ADDED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
+    #                 )
+    #                 return img_block
+
+    #         if isinstance(data, dict) and "type" in data and "image_url" in data:
+    #             base64_data_uri2: Any = data["image_url"]
+    #             if isinstance(base64_data_uri2, str) and base64_data_uri2.startswith(
+    #                 "data:"
+    #             ):
+    #                 media = LangfuseMedia(
+    #                     obj=base64_data_uri2,
+    #                     base64_data_uri=base64_data_uri2,
+    #                 )
+
+    #                 if media in self._cached_langfuse_media:
+    #                     rich.print(
+    #                         f"\ndata CACHED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
+    #                     )
+
+    #                     data["image_url"] = media
+    #                     return data
+
+    #                 self._process_media(
+    #                     media=media,
+    #                     trace_id=trace_id,
+    #                     observation_id=observation_id,
+    #                     field=field,
+    #                 )
+
+    #                 self._cached_langfuse_media.add(media)
+
+    #                 rich.print(
+    #                     f"\ndata ADDED - trace_id: {trace_id} - observation_id: {observation_id} - field: {field} - media._media_id: {media._media_id}\n"
+    #                 )
+    #                 data["image_url"] = media
+    #                 return data
+
+    #         # Anthropic
+    #         if (
+    #             isinstance(data, dict)
+    #             and "type" in data
+    #             and data["type"] == "base64"
+    #             and "media_type" in data
+    #             and "data" in data
+    #         ):
+    #             media = LangfuseMedia(
+    #                 base64_data_uri=f"data:{data['media_type']};base64," + data["data"],
+    #             )
+
+    #             self._process_media(
+    #                 media=media,
+    #                 trace_id=trace_id,
+    #                 observation_id=observation_id,
+    #                 field=field,
+    #             )
+
+    #             self._cached_langfuse_media.add(media)
+
+    #             copied = data.copy()
+    #             copied["data"] = media
+
+    #             return copied
+
+    #         # Vertex
+    #         if (
+    #             isinstance(data, dict)
+    #             and "type" in data
+    #             and data["type"] == "media"
+    #             and "mime_type" in data
+    #             and "data" in data
+    #         ):
+    #             media = LangfuseMedia(
+    #                 base64_data_uri=f"data:{data['mime_type']};base64," + data["data"],
+    #             )
+
+    #             self._process_media(
+    #                 media=media,
+    #                 trace_id=trace_id,
+    #                 observation_id=observation_id,
+    #                 field=field,
+    #             )
+
+    #             self._cached_langfuse_media.add(media)
+
+    #             copied = data.copy()
+    #             copied["data"] = media
+
+    #             return copied
+
+    #         if isinstance(data, list):
+    #             return [_process_data_recursively(item, level + 1) for item in data]
+
+    #         if isinstance(data, dict):
+    #             return {
+    #                 key: _process_data_recursively(value, level + 1)
+    #                 for key, value in data.items()
+    #             }
+
+    #         return data
+
+    #     return _process_data_recursively(data, 1)
 
     def _process_media(
         self,

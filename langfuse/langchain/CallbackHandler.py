@@ -1,7 +1,11 @@
-import uuid
+from __future__ import annotations
+
 from contextvars import Token
+from dataclasses import fields, is_dataclass
 from typing import (
+    TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     Iterable,
     List,
@@ -16,6 +20,7 @@ from typing import (
     TypeGuard,
     Union,
     cast,
+    overload,
 )
 from uuid import UUID
 
@@ -112,6 +117,9 @@ class ToolDefinition(TypedDict):
 
 LANGSMITH_TAG_HIDDEN: str = "langsmith:hidden"
 CONTROL_FLOW_EXCEPTION_TYPES: Set[Type[BaseException]] = set()
+
+if TYPE_CHECKING:
+    from langgraph.types import Command
 
 try:
     from langgraph.errors import GraphBubbleUp
@@ -351,38 +359,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 serialized, "chain", **kwargs
             )
 
-            messages: list[BaseMessage] | list[dict[str, Any]] | None = inputs.get(
-                "messages"
-            )
-            if messages is None:
-                state: dict[str, Any] | None = inputs.get("state")
-                if isinstance(state, dict):
-                    messages = state.get("messages")
-                    if messages is not None:
-                        messages = [
-                            self._convert_message_to_dict(m)
-                            for m in messages
-                            if isinstance(m, BaseMessage)
-                        ]
-            else:
-                messages = [
-                    self._convert_message_to_dict(m)
-                    for m in messages
-                    if isinstance(m, BaseMessage)
-                ]
-            # if messages is not None:
-            # messages = [self._convert_message_to_dict(m) for m in messages]
-
-            # if messages is None:
-            # state: dict[str, Any] | None = inputs.get("state")
-            # if isinstance(state, dict):
-            # messages = state.get("messages")
-
-            # if messages is not None:
-            # input_data["messages"] = [
-            # self._convert_message_to_dict(m) for m in messages
-            # ]
-
+            inputs_normalized = self.convert_on_chain_io_to_dict(inputs)
             obs = self._get_parent_observation(parent_run_id)
             if isinstance(obs, Langfuse):
                 span = obs.start_observation(
@@ -390,7 +367,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                     name=span_name,
                     as_type=observation_type,
                     metadata=span_metadata,
-                    input=inputs,
+                    input=inputs_normalized,
                     level=cast(
                         Literal["DEBUG", "DEFAULT", "WARNING", "ERROR"] | None,
                         span_level,
@@ -401,7 +378,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                     name=span_name,
                     as_type=observation_type,
                     metadata=span_metadata,
-                    input=inputs,
+                    input=inputs_normalized,
                     level=cast(
                         Literal["DEBUG", "DEFAULT", "WARNING", "ERROR"] | None,
                         span_level,
@@ -417,8 +394,11 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 parent_span_id = self.runs[parent_run_id].id
                 parent_span_name = self.runs[parent_run_id]._otel_span._name
 
+            # rich.print(
+            #     f"\n on_chain_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - inputs:\n{inputs}\n"
+            # )
             rich.print(
-                f"\n on_chain_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - inputs:\n{inputs}\n"
+                f"\n on_chain_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - inputs_normalized:\n{inputs_normalized}\n"
             )
             rich.print(
                 f"\n on_chain_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - serialized:\n{serialized}\n"
@@ -621,7 +601,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
     def on_chain_end(
         self,
-        outputs: Dict[str, Any],
+        outputs: Dict[str, Any] | list[Command[Any]],
         *,
         run_id: UUID,
         parent_run_id: Optional[UUID] = None,
@@ -635,46 +615,16 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             span = self._detach_observation(run_id)
 
             if span is not None:
-                messages: list[BaseMessage] | list[dict[str, Any]] | None = outputs.get(
-                    "messages"
-                )
-                if messages is None:
-                    state: dict[str, Any] | None = outputs.get("state")
-                    if isinstance(state, dict):
-                        messages = state.get("messages")
-                        if messages is not None:
-                            messages = [
-                                self._convert_message_to_dict(m)
-                                for m in messages
-                                if isinstance(m, BaseMessage)
-                            ]
-                else:
-                    messages = [
-                        self._convert_message_to_dict(m)
-                        for m in messages
-                        if isinstance(m, BaseMessage)
-                    ]
-                # output_data: dict[str, list[Any]] = {}
-                # messages: list[BaseMessage] | None = outputs.get("messages")
-
-                # if messages is None:
-                #     state: dict[str, Any] | None = outputs.get("state")
-                #     if isinstance(state, dict):
-                #         messages = state.get("messages")
-
-                # if messages is not None:
-                #     output_data["messages"] = [
-                #         self._convert_message_to_dict(m) for m in messages
-                #     ]
-
+                outputs_normalized = self.convert_on_chain_io_to_dict(outputs)
                 span_name = span._otel_span._name
                 parent_span_id = None
                 parent_span_name = None
                 if parent_run_id and parent_run_id in self.runs:
                     parent_span_id = self.runs[parent_run_id].id
                     parent_span_name = self.runs[parent_run_id]._otel_span._name
+
                 rich.print(
-                    f"\n on_chain_end - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - outputs:\n{outputs}\n"
+                    f"\n on_chain_end - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - outputs_normalized:\n{outputs_normalized}\n"
                 )
                 rich.print(
                     f"\n on_chain_end - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - kwargs:\n{kwargs}\n"
@@ -684,12 +634,14 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 span_attributes = otel_span._format_attributes(otel_span._attributes)
 
                 span.update(
-                    output=outputs,
+                    output=outputs_normalized,
                     input=kwargs.get("inputs"),
                 )
 
                 if parent_run_id is None and self.update_trace:
-                    span.update_trace(output=outputs, input=kwargs.get("inputs"))
+                    span.update_trace(
+                        output=outputs_normalized, input=kwargs.get("inputs")
+                    )
 
                 span.end()
 
@@ -752,18 +704,13 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 "on_chat_model_start", run_id, parent_run_id, messages=messages
             )
 
-            # flat_messages: Iterable[BaseMessage] = chain.from_iterable(messages)
-            #
-            # coalesced_prompts: List[Dict[str, Any]] = [
-            #     m for msg in flat_messages for m in self._convert_message_to_dict2(msg)
-            # ]
-            rich.print("on_chat_model_start - messages:\n")
-            pprint(
-                messages,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
+            # rich.print("on_chat_model_start - messages:\n")
+            # pprint(
+            #     messages,
+            #     expand_all=True,
+            #     indent_guides=False,
+            #     max_string=2000,
+            # )
             rich.print("\n--- START on_chat_model_start ---\n")
             self.__on_llm_action(
                 serialized,
@@ -867,11 +814,6 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             rich.print(
                 f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - type(input_str): {type(input_str)} - input_str:\n{input_str}\n"
             )
-
-            # rich.print(
-            #     f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - type(input_data): {type(input_data)} - input_data:\n{input_data}\n"
-            # )
-
             rich.print(
                 f"\n on_tool_start - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {span.id} - serialized:\n{serialized}\n"
             )
@@ -958,7 +900,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
     def on_tool_end(
         self,
-        output: str | ToolMessage | FunctionMessage,
+        output: Any,
         *,
         run_id: UUID,
         parent_run_id: Optional[UUID] = None,
@@ -970,13 +912,19 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             observation = self._detach_observation(run_id)
 
             if observation is not None:
-                # _consolidate_tool_message_content_blocks
-                output_data = output
-                if isinstance(output, ToolMessage | FunctionMessage):
-                    output_data = _consolidate_tool_message_content_blocks(output)
+                # output_data = output
+                # if isinstance(output, ToolMessage | FunctionMessage):
+                #     output_data = _consolidate_tool_message_content_blocks(output)
+
+                output_normalized = (
+                    self._convert_message_to_dict(output)
+                    if isinstance(output, BaseMessage)
+                    else output
+                )
 
                 observation.update(
-                    output=output_data,
+                    output=output_normalized,
+                    # output=output_data,
                     input=kwargs.get("inputs"),
                 ).end()
 
@@ -986,8 +934,11 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 if parent_run_id and parent_run_id in self.runs:
                     parent_span_id = self.runs[parent_run_id].id
                     parent_span_name = self.runs[parent_run_id]._otel_span._name
+                # rich.print(
+                #     f"\n on_tool_end - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {observation.id} - type(output): {type(output)} - output:\n{output}\n"
+                # )
                 rich.print(
-                    f"\n on_tool_end - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {observation.id} - type(output): {type(output)} - output:\n{output}\n"
+                    f"\n on_tool_end - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {observation.id} - type(output): {type(output)} - output_normalized:\n{output_normalized}\n"
                 )
                 rich.print(
                     f"\n on_tool_end - parent_span_name: {parent_span_name} - parent_span_id: {parent_span_id} - span_name: {span_name} - span.id: {observation.id} - kwargs:\n{kwargs}\n"
@@ -1327,7 +1278,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
         return message_dict
 
-    def _convert_message_to_dict3(self, message: BaseMessage) -> dict[str, Any]:
+    def _convert_message_to_dict(self, message: BaseMessage) -> dict[str, Any]:
         """
         The `content` attribute passes through the raw, provider-native format.
         The new `content_blocks` attribute provides a standardized representation of all message content types, regardless
@@ -1340,10 +1291,10 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
         # assistant message
         if isinstance(message, HumanMessage):
-            message_dict: Dict[str, Any] = {
-                "role": "user",
-                "content": message.content_blocks,
-            }
+            message_dict: Dict[str, Any] = message.model_dump(
+                mode="json", exclude={"content"}
+            )
+            message_dict["content"] = message.content_blocks
 
             rich.print("\n===== HumanMessage ===== EITA")
             rich.print("message_dict:\n")
@@ -1356,10 +1307,10 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             rich.print("==========================")
 
         elif isinstance(message, AIMessage):
-            message_dict: Dict[str, Any] = {
-                "role": "assistant",
-                "content": message.content_blocks,
-            }
+            message_dict: Dict[str, Any] = message.model_dump(
+                mode="json", exclude={"content"}
+            )
+            message_dict["content"] = message.content_blocks
 
             rich.print("\n===== AIMessage ===== EITA")
             rich.print("message_dict:\n")
@@ -1372,10 +1323,11 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             rich.print("==========================")
 
         elif isinstance(message, SystemMessage):
-            message_dict: Dict[str, Any] = {
-                "role": "system",
-                "content": message.content_blocks,
-            }
+            message_dict: Dict[str, Any] = message.model_dump(
+                mode="json", exclude={"content"}
+            )
+            message_dict["content"] = message.content_blocks
+
             rich.print("\n===== SystemMessage ===== EITA")
             rich.print("message_dict:\n")
             pprint(
@@ -1387,10 +1339,11 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             rich.print("==========================")
 
         elif isinstance(message, ToolMessage | FunctionMessage):
-            message_dict: Dict[str, Any] = {
-                "role": "tool",
-                "content": message.content_blocks,
-            }
+            message_dict: Dict[str, Any] = message.model_dump(
+                mode="json", exclude={"content"}
+            )
+            message_dict["content"] = message.content_blocks
+
             rich.print("\n===== ToolMessage | FunctionMessage ===== EITA")
             rich.print("message_dict:\n")
             pprint(
@@ -1399,25 +1352,14 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 indent_guides=False,
                 max_string=2000,
             )
-
             rich.print("==========================")
 
         # elif isinstance(message, FunctionMessage):
         elif isinstance(message, ChatMessage):
-            role: str = message.role
-            content: List[Any] = _consolidate_message_content_blocks(
-                message.content_blocks, ChatMessage, message.role
+            message_dict: Dict[str, Any] = message.model_dump(
+                mode="json", exclude={"content"}
             )
-            message_dict = {
-                "type": "chat",
-                "role": role,
-                "content": content,
-            }
-
-            message_dict: Dict[str, Any] = {
-                "role": "tool",
-                "content": message.content_blocks,
-            }
+            message_dict["content"] = message.content_blocks
 
             rich.print("\n===== ChatMessage ===== EITA")
             rich.print("message_dict:\n")
@@ -1439,7 +1381,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
         rich.print("\n--- END _convert_message_to_dict ---\n")
         return message_dict
 
-    def _convert_message_to_dict(self, message: BaseMessage) -> dict[str, Any]:
+    def _convert_message_to_dict3(self, message: BaseMessage) -> dict[str, Any]:
         """
         The `content` attribute passes through the raw, provider-native format.
         The new `content_blocks` attribute provides a standardized representation of all message content types, regardless
@@ -1624,6 +1566,53 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
         langfuse_logger.debug(
             f"Event: {event_name}, run_id: {run_id}, parent_run_id: {parent_run_id}"
         )
+
+    @overload
+    def convert_on_chain_io_to_dict(self, io: dict[str, Any]) -> dict[str, Any]: ...
+    @overload
+    def convert_on_chain_io_to_dict(
+        self, io: list[Command[Any]]
+    ) -> list[dict[str, Any]]: ...
+
+    def convert_on_chain_io_to_dict(
+        self,
+        io: dict[str, Any] | list[Command[Any]],
+    ) -> dict[str, Any] | list[dict[str, Any]]:
+        convert_msg_to_dict: Callable[[BaseMessage], dict[str, Any]] = (
+            self._convert_message_to_dict
+        )
+        max_levels = 10
+
+        def walk(
+            value: dict[str, Any] | list[Command[Any]] | Command[Any],
+            level: int,
+        ) -> Any:
+            if level > max_levels:
+                return value
+
+            # 1. `BaseMessage` to `Dict[str, Any]` before handling `dataclass`
+            if isinstance(value, BaseMessage):
+                return convert_msg_to_dict(value)
+
+            # 2. `dataclass` instances field-by-field to `dict[str, Any]`
+            # Avoid using `asdict()` because it performs double traversal/deepcopy
+            if is_dataclass(value) and not isinstance(value, type):
+                return {
+                    f.name: walk(getattr(value, f.name), level + 1)
+                    for f in fields(value)
+                }
+
+            # 3) Containers -> always produce new containers (no mutation)
+            if isinstance(value, dict):
+                # Keys intentionally not walked
+                return {k: walk(v, level + 1) for k, v in value.items()}
+
+            if isinstance(value, list):
+                return [walk(v, level + 1) for v in value]
+
+            return value
+
+        return walk(io, 0)
 
 
 def _extract_raw_response(last_response: Any) -> Any:

@@ -142,9 +142,9 @@ class EventSerializer(JSONEncoder):
                 return [self.default(item) for item in obj]
 
             if hasattr(obj, "__slots__"):
-                return self.default(
-                    {slot: getattr(obj, slot, None) for slot in obj.__slots__}
-                )
+                return self.default({
+                    slot: getattr(obj, slot, None) for slot in obj.__slots__
+                })
             elif hasattr(obj, "__dict__"):
                 obj_id = id(obj)
 
