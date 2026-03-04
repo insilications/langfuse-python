@@ -13,7 +13,6 @@ All span classes provide methods for media processing, attribute management,
 and scoring integration specific to Langfuse's observability platform.
 """
 
-import rich
 import warnings
 from datetime import datetime
 from time import time_ns
@@ -52,6 +51,7 @@ from langfuse._client.constants import (
     ObservationTypeSpanLike,
     get_observation_types_list,
 )
+from langfuse._utils.langchain import convert_langchain_io_to_dict
 from langfuse.logger import langfuse_logger
 from langfuse.types import MapValue, ScoreDataType, SpanLevel
 
@@ -192,9 +192,9 @@ class LangfuseObservationWrapper:
             # We don't want to overwrite the observation type, and already set it
             attributes.pop(LangfuseOtelSpanAttributes.OBSERVATION_TYPE, None)
 
-            self._otel_span.set_attributes(
-                {k: v for k, v in attributes.items() if v is not None}
-            )
+            self._otel_span.set_attributes({
+                k: v for k, v in attributes.items() if v is not None
+            })
             # Set OTEL span status if level is ERROR
             self._set_otel_span_status_if_error(
                 level=level, status_message=status_message
@@ -337,10 +337,7 @@ class LangfuseObservationWrapper:
 
                 # Score the span
                 span.score(
-                    name="accuracy",
-                    value=0.95,
-                    data_type="NUMERIC",
-                    comment="High accuracy result"
+                    name="accuracy", value=0.95, data_type="NUMERIC", comment="High accuracy result"
                 )
             ```
         """
@@ -419,7 +416,7 @@ class LangfuseObservationWrapper:
                     name="overall_quality",
                     value=0.9,
                     data_type="NUMERIC",
-                    comment="Good overall experience"
+                    comment="Good overall experience",
                 )
             ```
         """
@@ -513,6 +510,10 @@ class LangfuseObservationWrapper:
         Returns:
             The processed and masked data
         """
+
+        if field in {"input", "output"}:
+            data = convert_langchain_io_to_dict(data)
+
         return self._mask_attribute(
             data=self._process_media_in_attribute(data=data, field=field)
         )
@@ -950,16 +951,14 @@ class LangfuseObservationWrapper:
         }
 
         if as_type in get_observation_types_list(ObservationTypeGenerationLike):
-            common_args.update(
-                {
-                    "completion_start_time": completion_start_time,
-                    "model": model,
-                    "model_parameters": model_parameters,
-                    "usage_details": usage_details,
-                    "cost_details": cost_details,
-                    "prompt": prompt,
-                }
-            )
+            common_args.update({
+                "completion_start_time": completion_start_time,
+                "model": model,
+                "model_parameters": model_parameters,
+                "usage_details": usage_details,
+                "cost_details": cost_details,
+                "prompt": prompt,
+            })
 
         return observation_class(**common_args)  # type: ignore[no-any-return,return-value,arg-type]
 
@@ -1404,7 +1403,7 @@ class LangfuseSpan(LangfuseObservationWrapper):
                 generation = span.start_generation(
                     name="generate-answer",
                     model="gpt-4",
-                    input={"prompt": "Explain quantum computing"}
+                    input={"prompt": "Explain quantum computing"},
                 )
                 try:
                     # Call model API
@@ -1414,8 +1413,8 @@ class LangfuseSpan(LangfuseObservationWrapper):
                         output=response.text,
                         usage_details={
                             "prompt_tokens": response.usage.prompt_tokens,
-                            "completion_tokens": response.usage.completion_tokens
-                        }
+                            "completion_tokens": response.usage.completion_tokens,
+                        },
                     )
                 finally:
                     generation.end()
@@ -1501,9 +1500,7 @@ class LangfuseSpan(LangfuseObservationWrapper):
 
                 # Create a generation span with context management
                 with span.start_as_current_generation(
-                    name="generate-answer",
-                    model="gpt-4",
-                    input={"query": query}
+                    name="generate-answer", model="gpt-4", input={"query": query}
                 ) as generation:
                     # Generation span is active here
                     response = llm.generate(query)
@@ -1513,8 +1510,8 @@ class LangfuseSpan(LangfuseObservationWrapper):
                         output=response.text,
                         usage_details={
                             "prompt_tokens": response.usage.prompt_tokens,
-                            "completion_tokens": response.usage.completion_tokens
-                        }
+                            "completion_tokens": response.usage.completion_tokens,
+                        },
                     )
 
                 # Back to parent span context
@@ -1799,16 +1796,14 @@ class LangfuseGuardrail(LangfuseObservationWrapper):
         super().__init__(**kwargs)
 
 
-_OBSERVATION_CLASS_MAP.update(
-    {
-        "span": LangfuseSpan,
-        "generation": LangfuseGeneration,
-        "agent": LangfuseAgent,
-        "tool": LangfuseTool,
-        "chain": LangfuseChain,
-        "retriever": LangfuseRetriever,
-        "evaluator": LangfuseEvaluator,
-        "embedding": LangfuseEmbedding,
-        "guardrail": LangfuseGuardrail,
-    }
-)
+_OBSERVATION_CLASS_MAP.update({
+    "span": LangfuseSpan,
+    "generation": LangfuseGeneration,
+    "agent": LangfuseAgent,
+    "tool": LangfuseTool,
+    "chain": LangfuseChain,
+    "retriever": LangfuseRetriever,
+    "evaluator": LangfuseEvaluator,
+    "embedding": LangfuseEmbedding,
+    "guardrail": LangfuseGuardrail,
+})

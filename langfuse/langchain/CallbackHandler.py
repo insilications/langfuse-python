@@ -1602,7 +1602,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                     for f in fields(value)
                 }
 
-            # 3) Containers -> always produce new containers (no mutation)
+            # 3. Containers -> always produce new containers (no mutation)
             if isinstance(value, dict):
                 # Keys intentionally not walked
                 return {k: walk(v, level + 1) for k, v in value.items()}
