@@ -1569,12 +1569,62 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
 
     @overload
     def convert_on_chain_io_to_dict(self, io: dict[str, Any]) -> dict[str, Any]: ...
+
     @overload
-    def convert_on_chain_io_to_dict(
+    def convert_on_chain_io_to_dict[T](self, io: list[T]) -> list[dict[str, Any]]: ...
+
+    def convert_on_chain_io_to_dict[T](
+        self,
+        io: dict[str, Any] | list[T],
+    ) -> dict[str, Any] | list[dict[str, Any]]:
+        convert_msg_to_dict: Callable[[Any], dict[str, Any]] = (
+            self._convert_message_to_dict
+        )
+        max_levels = 10
+
+        def walk[U](
+            value: dict[str, Any] | list[U] | U,
+            level: int,
+        ) -> Any:
+            if level > max_levels:
+                return value
+
+            # 1. `BaseMessage` to `Dict[str, Any]` before handling `dataclass`
+            if isinstance(value, BaseMessage):
+                return convert_msg_to_dict(value)
+
+            # 2. `dataclass` instances field-by-field to `dict[str, Any]`
+            # Avoid using `asdict()` because it performs double traversal/deepcopy
+            if is_dataclass(value) and not isinstance(value, type):
+                return {
+                    f.name: walk(getattr(value, f.name), level + 1)
+                    for f in fields(value)
+                }
+
+            # 3. Containers -> always produce new containers (no mutation)
+            if isinstance(value, dict):
+                # Pylance lost the type parameters after isinstance. We restore them.
+                return {
+                    k: walk(v, level + 1)
+                    for k, v in cast("dict[str, Any]", value).items()
+                }
+
+            if isinstance(value, list):
+                # Restore the list[U] generic type parameter
+                return [walk(v, level + 1) for v in cast("list[U]", value)]
+
+            return value
+
+        return walk(io, 0)
+
+    @overload
+    def convert_on_chain_io_to_dict2(self, io: dict[str, Any]) -> dict[str, Any]: ...
+    @overload
+    def convert_on_chain_io_to_dict2(
         self, io: list[Command[Any]]
     ) -> list[dict[str, Any]]: ...
 
-    def convert_on_chain_io_to_dict(
+    def convert_on_chain_io_to_dict2(
         self,
         io: dict[str, Any] | list[Command[Any]],
     ) -> dict[str, Any] | list[dict[str, Any]]:
