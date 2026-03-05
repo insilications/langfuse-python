@@ -51,15 +51,12 @@ from langfuse._client.constants import (
     ObservationTypeSpanLike,
     get_observation_types_list,
 )
-from langfuse._utils.langchain import convert_langchain_io_to_dict
+from langfuse._utils.langchain import (
+    langchain_normalization,
+    normalize_nested_messages,
+)
 from langfuse.logger import langfuse_logger
 from langfuse.types import MapValue, ScoreDataType, SpanLevel
-
-# try:
-#     from langfuse._utils.langchain import convert_langchain_io_to_dict
-
-# except ImportError:
-#     convert_langchain_io_to_dict = None
 
 # Factory mapping for observation classes
 # Note: "event" is handled separately due to special instantiation logic
@@ -517,9 +514,8 @@ class LangfuseObservationWrapper:
             The processed and masked data
         """
 
-        if data and field in {"input", "output"}:
-            data = convert_langchain_io_to_dict(data)
-            kk = data
+        if data and field in {"input", "output"} and langchain_normalization:
+            data = normalize_nested_messages(data)
 
         return self._mask_attribute(
             data=self._process_media_in_attribute(data=data, field=field)

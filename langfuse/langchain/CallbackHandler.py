@@ -22,7 +22,7 @@ from typing import (
     cast,
     overload,
 )
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pydantic
 import rich
@@ -2005,7 +2005,7 @@ def _consolidate_message_content_blocks(
     for item in content_blocks:
         match item["type"]:
             case "reasoning":
-                item_id: str = item.get("id", f"rs_{uuid.uuid4()}")
+                item_id: str = item.get("id", f"rs_{uuid4()}")
 
                 merged: Any | None = reasoning_blocks_merged_by_id.get(item_id)
                 if merged is None:
@@ -2030,7 +2030,7 @@ def _consolidate_message_content_blocks(
                         "type": "summary_text",
                     })
             case "text":
-                item_id: str = item.get("id", f"msg_{uuid.uuid4()}")
+                item_id: str = item.get("id", f"msg_{uuid4()}")
                 text_block: dict[str, str] = {
                     "text": item["text"],
                     "type": _LANGCHAIN_TO_OPEN_RESPONSES_TYPES[msg_type, "text"],
@@ -2050,7 +2050,7 @@ def _consolidate_message_content_blocks(
                 else:
                     merged["content"].append(text_block)
             case "image":
-                item_id: str = item.get("id", f"msg_{uuid.uuid4()}")
+                item_id: str = item.get("id", f"msg_{uuid4()}")
                 img_block: dict[str, Any] = {
                     "type": _LANGCHAIN_TO_OPEN_RESPONSES_TYPES[msg_type, "image"]
                 }
@@ -2104,86 +2104,86 @@ def _consolidate_message_content_blocks(
     return out
 
 
-def _convert_tool_start_to_input_list(
-    input_str: str,
-    serialized: dict[str, Any] | None,
-    **kwargs: Any,
-) -> dict[str, Any]:
-    tool_call_block: dict[str, str] = {"type": "tool_call", "arguments": input_str}
+# def _convert_tool_start_to_input_list(
+#     input_str: str,
+#     serialized: dict[str, Any] | None,
+#     **kwargs: Any,
+# ) -> dict[str, Any]:
+#     tool_call_block: dict[str, str] = {"type": "tool_call", "arguments": input_str}
 
-    if "tool_call_id" in kwargs and kwargs["tool_call_id"] is not None:
-        tool_call_block["call_id"] = kwargs["tool_call_id"]
+#     if "tool_call_id" in kwargs and kwargs["tool_call_id"] is not None:
+#         tool_call_block["call_id"] = kwargs["tool_call_id"]
 
-    if "name" in kwargs and kwargs["name"] is not None:
-        tool_call_block["name"] = kwargs["name"]
-    elif serialized is not None and "name" in serialized:
-        tool_call_block["name"] = str(serialized["name"])
+#     if "name" in kwargs and kwargs["name"] is not None:
+#         tool_call_block["name"] = kwargs["name"]
+#     elif serialized is not None and "name" in serialized:
+#         tool_call_block["name"] = str(serialized["name"])
 
-    # return {
-    #     "messages": [
-    #         {
-    #             "type": "ai",
-    #             "role": "assistant",
-    #             "content": [tool_call_block],
-    #         }
-    #     ]
-    # }
-    return {
-        "type": "ai",
-        "role": "assistant",
-        "content": [tool_call_block],
-    }
-
-
-def _is_tool_invocation_param(obj: Any) -> TypeGuard[ToolDefinition]:
-    if not isinstance(obj, dict):
-        return False
-
-    name: Any | None = obj.get("name")
-    if not isinstance(name, str):
-        return False
-
-    desc: Any | None = obj.get("description")
-    if desc is not None and not isinstance(desc, str):
-        return False
-
-    params: Any | None = obj.get("parameters")
-    if params is not None and not isinstance(params, dict):
-        return False
-
-    strict: Any | None = obj.get("strict")
-    if strict is not None and not isinstance(strict, bool):
-        return False
-
-    return True
+#     # return {
+#     #     "messages": [
+#     #         {
+#     #             "type": "ai",
+#     #             "role": "assistant",
+#     #             "content": [tool_call_block],
+#     #         }
+#     #     ]
+#     # }
+#     return {
+#         "type": "ai",
+#         "role": "assistant",
+#         "content": [tool_call_block],
+#     }
 
 
-def _convert_tools_invocation_params_to_open_responses(
-    data: Iterable[Any] | None,
-) -> list[ToolDefinition] | None:
-    """
-    Convert tools invocation params to OpenResponses format.
-    This is needed to support tools invocation in a provider-agnostic way,
-    as different providers have different formats for tools invocation.
+# def _is_tool_invocation_param(obj: Any) -> TypeGuard[ToolDefinition]:
+#     if not isinstance(obj, dict):
+#         return False
 
-    `data` is shaped like: {"type": "function", "function": ToolDefinition}
-    """
-    if data is None:
-        return None
-    out: list[ToolDefinition] = []
+#     name: Any | None = obj.get("name")
+#     if not isinstance(name, str):
+#         return False
 
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        if item.get("type") != "function":
-            continue
+#     desc: Any | None = obj.get("description")
+#     if desc is not None and not isinstance(desc, str):
+#         return False
 
-        fn: Any | None = item.get("function")
-        if _is_tool_invocation_param(fn):
-            fn["type"] = "function"
-            out.append(fn)
+#     params: Any | None = obj.get("parameters")
+#     if params is not None and not isinstance(params, dict):
+#         return False
 
-    return out
+#     strict: Any | None = obj.get("strict")
+#     if strict is not None and not isinstance(strict, bool):
+#         return False
+
+#     return True
+
+
+# def _convert_tools_invocation_params_to_open_responses(
+#     data: Iterable[Any] | None,
+# ) -> list[ToolDefinition] | None:
+#     """
+#     Convert tools invocation params to OpenResponses format.
+#     This is needed to support tools invocation in a provider-agnostic way,
+#     as different providers have different formats for tools invocation.
+
+#     `data` is shaped like: {"type": "function", "function": ToolDefinition}
+#     """
+#     if data is None:
+#         return None
+#     out: list[ToolDefinition] = []
+
+#     for item in data:
+#         if not isinstance(item, dict):
+#             continue
+#         if item.get("type") != "function":
+#             continue
+
+#         fn: Any | None = item.get("function")
+#         if _is_tool_invocation_param(fn):
+#             fn["type"] = "function"
+#             out.append(fn)
+
+#     return out
 
 
 def clean_serializer(obj: Any) -> Any:

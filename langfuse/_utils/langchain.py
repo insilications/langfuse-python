@@ -1,5 +1,5 @@
 from dataclasses import fields, is_dataclass
-from typing import TYPE_CHECKING, Any, cast, overload
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -7,44 +7,69 @@ if TYPE_CHECKING:
 try:
     from langchain_core.messages import BaseMessage
 
+    langchain_normalization: bool = True
+
     def convert_message_to_dict(message: BaseMessage) -> dict[str, Any]:
+        """
+        Converts a LangChain `BaseMessage` into a standardized dictionary representation
+
+        Unlike a standard Pydantic `model_dump()`, this function deliberately intercepts
+        and reconstructs the fields:
+        - `content`: explicitly populated using `message.content_blocks` rather
+        than the raw content string, preserving multimodal or structured elements.
+        - `name`: extracted from `additional_kwargs` and promoted to a top-level key
+
+        Args:
+            message (BaseMessage): The LangChain message instance to convert.
+
+        Returns:
+            dict[str, Any]: A JSON-compatible dictionary representation of the message.
+        """
         message_dict: dict[str, Any] = message.model_dump(
             mode="json", exclude={"content"}
         )
         message_dict["content"] = message.content_blocks
 
-        if "name" in message.additional_kwargs:  # type: ignore
-            message_dict["name"] = message.additional_kwargs["name"]  # type: ignore
-
-        if message.additional_kwargs:  # type: ignore
-            message_dict["additional_kwargs"] = message.additional_kwargs  # type: ignore
+        additional_kwargs = message.additional_kwargs
+        if name := additional_kwargs.get("name"):
+            message_dict["name"] = name
 
         return message_dict
 
-    @overload
-    def convert_langchain_io_to_dict(io: dict[str, Any]) -> dict[str, Any]: ...
+    def normalize_nested_messages(
+        io: Any,
+    ) -> Any:
+        """
+        Recursively traverses arbitrary data structures to find and convert embedded
+        LangChain `BaseMessage` objects into dictionary representations.
 
-    @overload
-    def convert_langchain_io_to_dict[T](
-        io: list[T],
-    ) -> list[dict[str, Any]]: ...
+        Clones the traversed containers (dicts, lists, and dataclasses) to guarantee
+        that the original input is never mutated. It enforces a maximum recursion
+        depth of 10 levels to protect against stack overflows from cyclical references.
 
-    @overload
-    def convert_langchain_io_to_dict(
-        io: None,
-    ) -> None: ...
+        Design Notes:
+            - Dataclasses are parsed field-by-field. The built-in `dataclasses.asdict()`
+            is intentionally avoided to prevent performance penalties from
+            redundant double-traversals and deep copies.
+            - Dictionary keys are preserved as-is; only dictionary values are traversed.
 
-    def convert_langchain_io_to_dict[T](  # type: ignore
-        io: dict[str, Any] | list[T] | None,
-    ) -> dict[str, Any] | list[dict[str, Any]] | None:
-        if io is None:
-            return io
+        Args:
+            io (Any): The input payload.
 
-        convert_msg_to_dict: Callable[[Any], dict[str, Any]] = convert_message_to_dict
+        Returns:
+            Any: A new data structure identical to the input, but with all nested
+                `BaseMessage` instances replaced by their normalized dictionary formats.
+                If max depth is exceeded or the type is primitive,
+                the value is returned as-is.
+        """
+
+        convert_msg_to_dict: Callable[[BaseMessage], dict[str, Any]] = (
+            convert_message_to_dict
+        )
         max_levels = 10
 
-        def walk[U](
-            value: dict[str, Any] | list[U] | U,
+        def walk(
+            value: Any,
             level: int,
         ) -> Any:
             if level > max_levels:
@@ -64,81 +89,23 @@ try:
 
             # 3. Containers -> always produce new containers (no mutation)
             if isinstance(value, dict):
-                # Pylance lost the type parameters after isinstance. We restore them.
-                if TYPE_CHECKING:
-                    value = cast("dict[str, Any]", value)
+                # Keys intentionally not walked
+                # if TYPE_CHECKING:
+                # value = cast("dict[str, Any]", value)
                 return {k: walk(v, level + 1) for k, v in value.items()}
 
             if isinstance(value, list):
-                # Restore the list[U] generic type parameter
-                if TYPE_CHECKING:
-                    value = cast("list[U]", value)
+                # if TYPE_CHECKING:
+                # value = cast("list[Any]", value)
                 return [walk(v, level + 1) for v in value]
 
             return value
 
         return walk(io, 0)
 
-    # def convert_langchain_io_to_dict(
-    #     io: Any | None,
-    # ) -> Any | None:
-    #     convert_msg_to_dict: Callable[[BaseMessage], dict[str, Any]] = (
-    #         convert_message_to_dict
-    #     )
-    #     max_levels = 10
-
-    #     def walk(
-    #         value: Any,
-    #         level: int,
-    #     ) -> Any:
-    #         if level > max_levels:
-    #             return value
-
-    #         # 1. `BaseMessage` to `Dict[str, Any]` before handling `dataclass`
-    #         if isinstance(value, BaseMessage):
-    #             return convert_msg_to_dict(value)
-
-    #         # 2. `dataclass` instances field-by-field to `dict[str, Any]`
-    #         # Avoid using `asdict()` because it performs double traversal/deepcopy
-    #         if is_dataclass(value) and not isinstance(value, type):
-    #             return {
-    #                 f.name: walk(getattr(value, f.name), level + 1)
-    #                 for f in fields(value)
-    #             }
-
-    #         # 3. Containers -> always produce new containers (no mutation)
-    #         if isinstance(value, dict):
-    #             # Keys intentionally not walked
-    #             return {k: walk(v, level + 1) for k, v in value.items()}  # type: ignore
-
-    #         if isinstance(value, list):
-    #             return [walk(v, level + 1) for v in value]  # type: ignore
-
-    #         return value
-
-    #     if io is None:
-    #         return io
-    #     return walk(io, 0)
-
 except ImportError:
+    langchain_normalization: bool = False
+
     # Fallback: Langchain isn't available, so we define a no-op conversion function
-    @overload
-    def convert_langchain_io_to_dict(io: dict[str, Any]) -> dict[str, Any]: ...
-
-    @overload
-    def convert_langchain_io_to_dict[T](
-        io: list[T],
-    ) -> list[dict[str, Any]]: ...
-
-    @overload
-    def convert_langchain_io_to_dict(
-        io: None,
-    ) -> None: ...
-
-    def convert_langchain_io_to_dict[T](
-        io: dict[str, Any] | list[T] | None,
-    ) -> dict[str, Any] | list[dict[str, Any]] | None:
-        return cast("dict[str, Any] | list[dict[str, Any]] | None", io)
-
-    # def convert_langchain_io_to_dict(io: Any | None) -> Any | None:
-    #     return io
+    def normalize_nested_messages(io: Any) -> Any:
+        return io
