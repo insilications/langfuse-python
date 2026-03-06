@@ -49,6 +49,12 @@ from langfuse.types import TraceContext
 try:
     import langchain
 
+    from langfuse._utils.langchain import (
+        normalize_message_list_to_dicts,
+        normalize_message_to_dict,
+        normalize_nested_messages,
+    )
+
     if langchain.__version__.startswith("1"):
         # Langchain v1
         from langchain_core.agents import AgentAction, AgentFinish
@@ -359,7 +365,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 serialized, "chain", **kwargs
             )
 
-            inputs_normalized = self.convert_on_chain_io_to_dict(inputs)
+            inputs_normalized = normalize_nested_messages(inputs)
             obs = self._get_parent_observation(parent_run_id)
             if isinstance(obs, Langfuse):
                 span = obs.start_observation(
@@ -615,7 +621,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             span = self._detach_observation(run_id)
 
             if span is not None:
-                outputs_normalized = self.convert_on_chain_io_to_dict(outputs)
+                outputs_normalized = normalize_nested_messages(outputs)
                 span_name = span._otel_span._name
                 parent_span_id = None
                 parent_span_name = None
@@ -716,9 +722,9 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 serialized,
                 run_id,
                 cast(
-                    List,
+                    "list[dict[str, Any]]",
                     _flatten_comprehension([
-                        self._create_message_dicts(m) for m in messages
+                        normalize_message_list_to_dicts(m) for m in messages
                     ]),
                 ),
                 parent_run_id,
@@ -917,7 +923,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 #     output_data = _consolidate_tool_message_content_blocks(output)
 
                 output_normalized = (
-                    self._convert_message_to_dict(output)
+                    normalize_message_to_dict(output)
                     if isinstance(output, BaseMessage)
                     else output
                 )
@@ -1159,7 +1165,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             response_generation = response.generations[-1][-1]
             rich.print("\n--- START on_llm_end ---\n")
             extracted_response = (
-                self._convert_message_to_dict(response_generation.message)
+                normalize_message_to_dict(response_generation.message)
                 if isinstance(response_generation, ChatGeneration)
                 else _extract_raw_response(response_generation)
             )

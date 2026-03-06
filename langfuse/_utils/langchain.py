@@ -1,6 +1,9 @@
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
+import rich
+from rich.pretty import pprint
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -9,14 +12,19 @@ try:
 
     langchain_normalization: bool = True
 
-    def convert_message_to_dict(message: BaseMessage) -> dict[str, Any]:
+    def normalize_message_to_dict(message: BaseMessage) -> dict[str, Any]:
         """
         Converts a LangChain `BaseMessage` into a standardized dictionary representation
 
-        Unlike a standard Pydantic `model_dump()`, this function deliberately intercepts
-        and reconstructs the fields:
-        - `content`: explicitly populated using `message.content_blocks` rather
-        than the raw content string, preserving multimodal or structured elements.
+        Unlike a standard Pydantic `model_dump()`,
+        this function deliberately intercepts and reconstructs the fields:
+        - `content`: explicitly populated using `message.content_blocks`
+        rather than `message.content`. The `content` attribute passes through the raw,
+        provider-native format.
+        The new `content_blocks` attribute provides a standardized representation
+        of all message content types, regardless of provider (OpenAI, Anthropic, etc.).
+        It is fully compatible with existing LangChain applications.
+        https://docs.langchain.com/oss/python/langchain/messages#standard-content-blocks
         - `name`: extracted from `additional_kwargs` and promoted to a top-level key
 
         Args:
@@ -25,6 +33,10 @@ try:
         Returns:
             dict[str, Any]: A JSON-compatible dictionary representation of the message.
         """
+
+        rich.print("\n--- START normalize_message_to_dict ---\n")
+        rich.print(f"f\n===== {type(message).__name__} ===== EITA")
+
         message_dict: dict[str, Any] = message.model_dump(
             mode="json", exclude={"content"}
         )
@@ -34,24 +46,38 @@ try:
         if name := additional_kwargs.get("name"):
             message_dict["name"] = name
 
+        rich.print("message_dict:\n")
+        pprint(
+            message_dict,
+            expand_all=True,
+            indent_guides=False,
+            max_string=2000,
+        )
+        rich.print("==========================")
+        rich.print("\n--- END normalize_message_to_dict ---\n")
         return message_dict
+
+    def normalize_message_list_to_dicts(
+        messages: list[BaseMessage],
+    ) -> list[dict[str, Any]]:
+        return [normalize_message_to_dict(m) for m in messages]
 
     def normalize_nested_messages(
         io: Any,
     ) -> Any:
         """
-        Recursively traverses arbitrary data structures to find and convert embedded
-        LangChain `BaseMessage` objects into dictionary representations.
+        Recursively traverses arbitrary data structures
+        to find and convert embedded LangChain `BaseMessage` objects into dictionaries.
 
-        Clones the traversed containers (dicts, lists, and dataclasses) to guarantee
-        that the original input is never mutated. It enforces a maximum recursion
-        depth of 10 levels to protect against stack overflows from cyclical references.
+        Clones the traversed containers to guarantee
+        that the original input is never mutated.
+        It enforces a maximum recursion depth of 10 levels
+        to protect against stack overflows from cyclical references.
 
-        Design Notes:
-            - Dataclasses are parsed field-by-field. The built-in `dataclasses.asdict()`
-            is intentionally avoided to prevent performance penalties from
-            redundant double-traversals and deep copies.
-            - Dictionary keys are preserved as-is; only dictionary values are traversed.
+        - Dataclasses are parsed field-by-field. The built-in `dataclasses.asdict()`
+        is intentionally avoided to prevent performance penalties
+        from redundant double-traversals and deep copies.
+        - Dictionary keys are preserved as-is; only dictionary values are traversed.
 
         Args:
             io (Any): The input payload.
@@ -64,7 +90,7 @@ try:
         """
 
         convert_msg_to_dict: Callable[[BaseMessage], dict[str, Any]] = (
-            convert_message_to_dict
+            normalize_message_to_dict
         )
         max_levels = 10
 
@@ -90,13 +116,9 @@ try:
             # 3. Containers -> always produce new containers (no mutation)
             if isinstance(value, dict):
                 # Keys intentionally not walked
-                # if TYPE_CHECKING:
-                # value = cast("dict[str, Any]", value)
                 return {k: walk(v, level + 1) for k, v in value.items()}
 
             if isinstance(value, list):
-                # if TYPE_CHECKING:
-                # value = cast("list[Any]", value)
                 return [walk(v, level + 1) for v in value]
 
             return value
