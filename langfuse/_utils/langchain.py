@@ -8,17 +8,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 try:
-    # from langchain_core.messages import BaseMessage
-    from langchain_core.messages import (
-        AIMessage,
-        BaseMessage,
-        ChatMessage,
-        FunctionMessage,
-        HumanMessage,
-        SystemMessage,
-        ToolMessage,
-        content,
-    )
+    from langchain_core.messages import BaseMessage
 
     langchain_normalization: bool = True
 
@@ -46,6 +36,15 @@ try:
 
         rich.print("\n--- START normalize_message_to_dict ---\n")
         rich.print(f"f\n===== {type(message).__name__} ===== EITA")
+
+        rich.print("message:\n")
+        pprint(
+            message,
+            expand_all=True,
+            indent_guides=False,
+            max_string=2000,
+        )
+        rich.print("=====")
 
         message_dict: dict[str, Any] = message.model_dump(
             mode="json", exclude={"content"}

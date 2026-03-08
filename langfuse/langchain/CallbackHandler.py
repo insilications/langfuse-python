@@ -7,7 +7,6 @@ from typing import (
     Any,
     Callable,
     Dict,
-    Iterable,
     List,
     Literal,
     NotRequired,
@@ -17,7 +16,6 @@ from typing import (
     Set,
     Type,
     TypedDict,
-    TypeGuard,
     Union,
     cast,
     overload,
@@ -64,6 +62,7 @@ try:
         from langchain_core.documents import Document
         from langchain_core.messages import (
             AIMessage,
+            AnyMessage,
             BaseMessage,
             ChatMessage,
             FunctionMessage,
@@ -724,7 +723,7 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
                 cast(
                     "list[dict[str, Any]]",
                     _flatten_comprehension([
-                        self._create_message_dicts(m) for m in messages
+                        normalize_message_list_to_dicts(m) for m in messages
                     ]),
                 ),
                 parent_run_id,
@@ -1248,319 +1247,319 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             else None
         )
 
-    def _convert_message_to_dict2(self, message: BaseMessage) -> Dict[str, Any]:
-        # assistant message
-        if isinstance(message, HumanMessage):
-            message_dict: Dict[str, Any] = {"role": "user", "content": message.content}
-        elif isinstance(message, AIMessage):
-            message_dict = {"role": "assistant", "content": message.content}
+    # def _convert_message_to_dict2(self, message: BaseMessage) -> Dict[str, Any]:
+    #     # assistant message
+    #     if isinstance(message, HumanMessage):
+    #         message_dict: Dict[str, Any] = {"role": "user", "content": message.content}
+    #     elif isinstance(message, AIMessage):
+    #         message_dict = {"role": "assistant", "content": message.content}
 
-            if (
-                hasattr(message, "tool_calls")
-                and message.tool_calls is not None
-                and len(message.tool_calls) > 0
-            ):
-                message_dict["tool_calls"] = message.tool_calls
+    #         if (
+    #             hasattr(message, "tool_calls")
+    #             and message.tool_calls is not None
+    #             and len(message.tool_calls) > 0
+    #         ):
+    #             message_dict["tool_calls"] = message.tool_calls
 
-        elif isinstance(message, SystemMessage):
-            message_dict = {"role": "system", "content": message.content}
-        elif isinstance(message, ToolMessage):
-            message_dict = {
-                "role": "tool",
-                "content": message.content,
-                "tool_call_id": message.tool_call_id,
-            }
-        elif isinstance(message, FunctionMessage):
-            message_dict = {"role": "function", "content": message.content}
-        elif isinstance(message, ChatMessage):
-            message_dict = {"role": message.role, "content": message.content}
-        else:
-            raise ValueError(f"Got unknown type {message}")
-        if "name" in message.additional_kwargs:
-            message_dict["name"] = message.additional_kwargs["name"]
+    #     elif isinstance(message, SystemMessage):
+    #         message_dict = {"role": "system", "content": message.content}
+    #     elif isinstance(message, ToolMessage):
+    #         message_dict = {
+    #             "role": "tool",
+    #             "content": message.content,
+    #             "tool_call_id": message.tool_call_id,
+    #         }
+    #     elif isinstance(message, FunctionMessage):
+    #         message_dict = {"role": "function", "content": message.content}
+    #     elif isinstance(message, ChatMessage):
+    #         message_dict = {"role": message.role, "content": message.content}
+    #     else:
+    #         raise ValueError(f"Got unknown type {message}")
+    #     if "name" in message.additional_kwargs:
+    #         message_dict["name"] = message.additional_kwargs["name"]
 
-        if message.additional_kwargs:
-            message_dict["additional_kwargs"] = message.additional_kwargs  # type: ignore
+    #     if message.additional_kwargs:
+    #         message_dict["additional_kwargs"] = message.additional_kwargs  # type: ignore
 
-        return message_dict
+    #     return message_dict
 
-    def _convert_message_to_dict(self, message: BaseMessage) -> dict[str, Any]:
-        """
-        The `content` attribute passes through the raw, provider-native format.
-        The new `content_blocks` attribute provides a standardized representation of all message content types, regardless
-        of provider (OpenAI, Anthropic, Gemini, etc.). It is fully compatible with existing LangChain applications.
+    # def _convert_message_to_dict(self, message: BaseMessage) -> dict[str, Any]:
+    #     """
+    #     The `content` attribute passes through the raw, provider-native format.
+    #     The new `content_blocks` attribute provides a standardized representation of all message content types, regardless
+    #     of provider (OpenAI, Anthropic, Gemini, etc.). It is fully compatible with existing LangChain applications.
 
-        https://docs.langchain.com/oss/python/langchain/messages#standard-content-blocks
-        """
-        rich.print("\n--- START _convert_message_to_dict ---\n")
-        message_dict: Dict[str, Any] = {}
+    #     https://docs.langchain.com/oss/python/langchain/messages#standard-content-blocks
+    #     """
+    #     rich.print("\n--- START _convert_message_to_dict ---\n")
+    #     message_dict: Dict[str, Any] = {}
 
-        # assistant message
-        if isinstance(message, HumanMessage):
-            message_dict: Dict[str, Any] = message.model_dump(
-                mode="json", exclude={"content"}
-            )
-            message_dict["content"] = message.content_blocks
+    #     # assistant message
+    #     if isinstance(message, HumanMessage):
+    #         message_dict: Dict[str, Any] = message.model_dump(
+    #             mode="json", exclude={"content"}
+    #         )
+    #         message_dict["content"] = message.content_blocks
 
-            rich.print("\n===== HumanMessage ===== EITA")
-            rich.print("message_dict:\n")
-            pprint(
-                message_dict,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("==========================")
+    #         rich.print("\n===== HumanMessage ===== EITA")
+    #         rich.print("message_dict:\n")
+    #         pprint(
+    #             message_dict,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("==========================")
 
-        elif isinstance(message, AIMessage):
-            message_dict: Dict[str, Any] = message.model_dump(
-                mode="json", exclude={"content"}
-            )
-            message_dict["content"] = message.content_blocks
+    #     elif isinstance(message, AIMessage):
+    #         message_dict: Dict[str, Any] = message.model_dump(
+    #             mode="json", exclude={"content"}
+    #         )
+    #         message_dict["content"] = message.content_blocks
 
-            rich.print("\n===== AIMessage ===== EITA")
-            rich.print("message_dict:\n")
-            pprint(
-                message_dict,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("==========================")
+    #         rich.print("\n===== AIMessage ===== EITA")
+    #         rich.print("message_dict:\n")
+    #         pprint(
+    #             message_dict,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("==========================")
 
-        elif isinstance(message, SystemMessage):
-            message_dict: Dict[str, Any] = message.model_dump(
-                mode="json", exclude={"content"}
-            )
-            message_dict["content"] = message.content_blocks
+    #     elif isinstance(message, SystemMessage):
+    #         message_dict: Dict[str, Any] = message.model_dump(
+    #             mode="json", exclude={"content"}
+    #         )
+    #         message_dict["content"] = message.content_blocks
 
-            rich.print("\n===== SystemMessage ===== EITA")
-            rich.print("message_dict:\n")
-            pprint(
-                message_dict,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("==========================")
+    #         rich.print("\n===== SystemMessage ===== EITA")
+    #         rich.print("message_dict:\n")
+    #         pprint(
+    #             message_dict,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("==========================")
 
-        elif isinstance(message, ToolMessage | FunctionMessage):
-            message_dict: Dict[str, Any] = message.model_dump(
-                mode="json", exclude={"content"}
-            )
-            message_dict["content"] = message.content_blocks
+    #     elif isinstance(message, ToolMessage | FunctionMessage):
+    #         message_dict: Dict[str, Any] = message.model_dump(
+    #             mode="json", exclude={"content"}
+    #         )
+    #         message_dict["content"] = message.content_blocks
 
-            rich.print("\n===== ToolMessage | FunctionMessage ===== EITA")
-            rich.print("message_dict:\n")
-            pprint(
-                message_dict,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("==========================")
+    #         rich.print("\n===== ToolMessage | FunctionMessage ===== EITA")
+    #         rich.print("message_dict:\n")
+    #         pprint(
+    #             message_dict,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("==========================")
 
-        # elif isinstance(message, FunctionMessage):
-        elif isinstance(message, ChatMessage):
-            message_dict: Dict[str, Any] = message.model_dump(
-                mode="json", exclude={"content"}
-            )
-            message_dict["content"] = message.content_blocks
+    #     # elif isinstance(message, FunctionMessage):
+    #     elif isinstance(message, ChatMessage):
+    #         message_dict: Dict[str, Any] = message.model_dump(
+    #             mode="json", exclude={"content"}
+    #         )
+    #         message_dict["content"] = message.content_blocks
 
-            rich.print("\n===== ChatMessage ===== EITA")
-            rich.print("message_dict:\n")
-            pprint(
-                message_dict,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("==========================")
-        else:
-            raise ValueError(f"Got unknown type {message}")
-        if "name" in message.additional_kwargs:
-            message_dict["name"] = message.additional_kwargs["name"]
+    #         rich.print("\n===== ChatMessage ===== EITA")
+    #         rich.print("message_dict:\n")
+    #         pprint(
+    #             message_dict,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("==========================")
+    #     else:
+    #         raise ValueError(f"Got unknown type {message}")
+    #     if "name" in message.additional_kwargs:
+    #         message_dict["name"] = message.additional_kwargs["name"]
 
-        if message.additional_kwargs:
-            message_dict["additional_kwargs"] = message.additional_kwargs  # type: ignore
+    #     if message.additional_kwargs:
+    #         message_dict["additional_kwargs"] = message.additional_kwargs  # type: ignore
 
-        rich.print("\n--- END _convert_message_to_dict ---\n")
-        return message_dict
+    #     rich.print("\n--- END _convert_message_to_dict ---\n")
+    #     return message_dict
 
-    def _convert_message_to_dict3(self, message: BaseMessage) -> dict[str, Any]:
-        """
-        The `content` attribute passes through the raw, provider-native format.
-        The new `content_blocks` attribute provides a standardized representation of all message content types, regardless
-        of provider (OpenAI, Anthropic, Gemini, etc.). It is fully compatible with existing LangChain applications.
+    # def _convert_message_to_dict3(self, message: BaseMessage) -> dict[str, Any]:
+    #     """
+    #     The `content` attribute passes through the raw, provider-native format.
+    #     The new `content_blocks` attribute provides a standardized representation of all message content types, regardless
+    #     of provider (OpenAI, Anthropic, Gemini, etc.). It is fully compatible with existing LangChain applications.
 
-        https://docs.langchain.com/oss/python/langchain/messages#standard-content-blocks
-        """
-        rich.print("\n--- START _convert_message_to_dict ---\n")
-        message_dict: Dict[str, Any] = {}
+    #     https://docs.langchain.com/oss/python/langchain/messages#standard-content-blocks
+    #     """
+    #     rich.print("\n--- START _convert_message_to_dict ---\n")
+    #     message_dict: Dict[str, Any] = {}
 
-        # assistant message
-        if isinstance(message, HumanMessage):
-            rich.print("message:\n")
-            pprint(
-                message,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("message.content:\n")
-            pprint(
-                message.content,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("message.content_blocks:\n")
-            pprint(
-                message.content_blocks,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
+    #     # assistant message
+    #     if isinstance(message, HumanMessage):
+    #         rich.print("message:\n")
+    #         pprint(
+    #             message,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("message.content:\n")
+    #         pprint(
+    #             message.content,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("message.content_blocks:\n")
+    #         pprint(
+    #             message.content_blocks,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
 
-            content: List[Any] = _consolidate_message_content_blocks(
-                message.content_blocks, HumanMessage, "user"
-            )
-            message_dict = {"type": "human", "role": "user", "content": content}
+    #         content: List[Any] = _consolidate_message_content_blocks(
+    #             message.content_blocks, HumanMessage, "user"
+    #         )
+    #         message_dict = {"type": "human", "role": "user", "content": content}
 
-            rich.print("\n===== HumanMessage ===== EITA")
-            rich.print("message_dict:\n")
-            pprint(
-                message_dict,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("==========================")
+    #         rich.print("\n===== HumanMessage ===== EITA")
+    #         rich.print("message_dict:\n")
+    #         pprint(
+    #             message_dict,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("==========================")
 
-        elif isinstance(message, AIMessage):
-            rich.print("message:\n")
-            pprint(
-                message,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("message.content:\n")
-            pprint(
-                message.content,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("message.content_blocks:\n")
-            pprint(
-                message.content_blocks,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
+    #     elif isinstance(message, AIMessage):
+    #         rich.print("message:\n")
+    #         pprint(
+    #             message,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("message.content:\n")
+    #         pprint(
+    #             message.content,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("message.content_blocks:\n")
+    #         pprint(
+    #             message.content_blocks,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
 
-            content: List[Any] = _consolidate_message_content_blocks(
-                message.content_blocks, AIMessage, "assistant"
-            )
-            message_dict = {"type": "ai", "role": "assistant", "content": content}
+    #         content: List[Any] = _consolidate_message_content_blocks(
+    #             message.content_blocks, AIMessage, "assistant"
+    #         )
+    #         message_dict = {"type": "ai", "role": "assistant", "content": content}
 
-            rich.print("\n===== AIMessage ===== EITA")
-            rich.print("message_dict:\n")
-            pprint(
-                message_dict,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("==========================")
+    #         rich.print("\n===== AIMessage ===== EITA")
+    #         rich.print("message_dict:\n")
+    #         pprint(
+    #             message_dict,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("==========================")
 
-        elif isinstance(message, SystemMessage):
-            content: List[Any] = _consolidate_message_content_blocks(
-                message.content_blocks, SystemMessage, "system"
-            )
-            message_dict = {"type": "system", "role": "system", "content": content}
+    #     elif isinstance(message, SystemMessage):
+    #         content: List[Any] = _consolidate_message_content_blocks(
+    #             message.content_blocks, SystemMessage, "system"
+    #         )
+    #         message_dict = {"type": "system", "role": "system", "content": content}
 
-            rich.print("\n===== SystemMessage ===== EITA")
-            rich.print("message_dict:\n")
-            pprint(
-                message_dict,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("==========================")
+    #         rich.print("\n===== SystemMessage ===== EITA")
+    #         rich.print("message_dict:\n")
+    #         pprint(
+    #             message_dict,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("==========================")
 
-        elif isinstance(message, ToolMessage | FunctionMessage):
-            rich.print("message:\n")
-            pprint(
-                message,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("message.content:\n")
-            pprint(
-                message.content,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("message.content_blocks:\n")
-            pprint(
-                message.content_blocks,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
+    #     elif isinstance(message, ToolMessage | FunctionMessage):
+    #         rich.print("message:\n")
+    #         pprint(
+    #             message,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("message.content:\n")
+    #         pprint(
+    #             message.content,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("message.content_blocks:\n")
+    #         pprint(
+    #             message.content_blocks,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
 
-            message_dict = _consolidate_tool_message_content_blocks(message)
+    #         message_dict = _consolidate_tool_message_content_blocks(message)
 
-            rich.print("\n===== ToolMessage | FunctionMessage ===== EITA")
-            rich.print("message_dict:\n")
-            pprint(
-                message_dict,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
+    #         rich.print("\n===== ToolMessage | FunctionMessage ===== EITA")
+    #         rich.print("message_dict:\n")
+    #         pprint(
+    #             message_dict,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
 
-            rich.print("==========================")
-        elif isinstance(message, ChatMessage):
-            role: str = message.role
-            content: List[Any] = _consolidate_message_content_blocks(
-                message.content_blocks, ChatMessage, message.role
-            )
-            message_dict = {
-                "type": "chat",
-                "role": role,
-                "content": content,
-            }
+    #         rich.print("==========================")
+    #     elif isinstance(message, ChatMessage):
+    #         role: str = message.role
+    #         content: List[Any] = _consolidate_message_content_blocks(
+    #             message.content_blocks, ChatMessage, message.role
+    #         )
+    #         message_dict = {
+    #             "type": "chat",
+    #             "role": role,
+    #             "content": content,
+    #         }
 
-            rich.print("\n===== ChatMessage ===== EITA")
-            rich.print("message_dict:\n")
-            pprint(
-                message_dict,
-                expand_all=True,
-                indent_guides=False,
-                max_string=2000,
-            )
-            rich.print("==========================")
-        else:
-            raise ValueError(f"Got unknown type {message}")
-        if "name" in message.additional_kwargs:
-            message_dict["name"] = message.additional_kwargs["name"]
+    #         rich.print("\n===== ChatMessage ===== EITA")
+    #         rich.print("message_dict:\n")
+    #         pprint(
+    #             message_dict,
+    #             expand_all=True,
+    #             indent_guides=False,
+    #             max_string=2000,
+    #         )
+    #         rich.print("==========================")
+    #     else:
+    #         raise ValueError(f"Got unknown type {message}")
+    #     if "name" in message.additional_kwargs:
+    #         message_dict["name"] = message.additional_kwargs["name"]
 
-        if message.additional_kwargs:
-            message_dict["additional_kwargs"] = message.additional_kwargs  # type: ignore
+    #     if message.additional_kwargs:
+    #         message_dict["additional_kwargs"] = message.additional_kwargs  # type: ignore
 
-        rich.print("\n--- END _convert_message_to_dict ---\n")
-        return message_dict
+    #     rich.print("\n--- END _convert_message_to_dict ---\n")
+    #     return message_dict
 
-    def _create_message_dicts(
-        self, messages: List[BaseMessage]
-    ) -> List[dict[str, Any]]:
-        return [self._convert_message_to_dict3(m) for m in messages]
+    # def _create_message_dicts(
+    #     self, messages: List[BaseMessage]
+    # ) -> List[dict[str, Any]]:
+    #     return [self._convert_message_to_dict3(m) for m in messages]
 
     def _log_debug_event(
         self,
