@@ -47,7 +47,7 @@ try:
         rich.print("=====")
 
         message_dict: dict[str, Any] = message.model_dump(
-            mode="json", exclude={"content"}
+            exclude_none=True, mode="json", exclude={"content"}
         )
         message_dict["content"] = message.content_blocks
 

@@ -1572,102 +1572,102 @@ class LangchainCallbackHandler(LangchainBaseCallbackHandler):
             f"Event: {event_name}, run_id: {run_id}, parent_run_id: {parent_run_id}"
         )
 
-    @overload
-    def convert_on_chain_io_to_dict(self, io: dict[str, Any]) -> dict[str, Any]: ...
+    # @overload
+    # def convert_on_chain_io_to_dict(self, io: dict[str, Any]) -> dict[str, Any]: ...
 
-    @overload
-    def convert_on_chain_io_to_dict[T](self, io: list[T]) -> list[dict[str, Any]]: ...
+    # @overload
+    # def convert_on_chain_io_to_dict[T](self, io: list[T]) -> list[dict[str, Any]]: ...
 
-    def convert_on_chain_io_to_dict[T](
-        self,
-        io: dict[str, Any] | list[T],
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        convert_msg_to_dict: Callable[[Any], dict[str, Any]] = (
-            self._convert_message_to_dict
-        )
-        max_levels = 10
+    # def convert_on_chain_io_to_dict[T](
+    #     self,
+    #     io: dict[str, Any] | list[T],
+    # ) -> dict[str, Any] | list[dict[str, Any]]:
+    #     convert_msg_to_dict: Callable[[Any], dict[str, Any]] = (
+    #         self._convert_message_to_dict
+    #     )
+    #     max_levels = 10
 
-        def walk[U](
-            value: dict[str, Any] | list[U] | U,
-            level: int,
-        ) -> Any:
-            if level > max_levels:
-                return value
+    #     def walk[U](
+    #         value: dict[str, Any] | list[U] | U,
+    #         level: int,
+    #     ) -> Any:
+    #         if level > max_levels:
+    #             return value
 
-            # 1. `BaseMessage` to `Dict[str, Any]` before handling `dataclass`
-            if isinstance(value, BaseMessage):
-                return convert_msg_to_dict(value)
+    #         # 1. `BaseMessage` to `Dict[str, Any]` before handling `dataclass`
+    #         if isinstance(value, BaseMessage):
+    #             return convert_msg_to_dict(value)
 
-            # 2. `dataclass` instances field-by-field to `dict[str, Any]`
-            # Avoid using `asdict()` because it performs double traversal/deepcopy
-            if is_dataclass(value) and not isinstance(value, type):
-                return {
-                    f.name: walk(getattr(value, f.name), level + 1)
-                    for f in fields(value)
-                }
+    #         # 2. `dataclass` instances field-by-field to `dict[str, Any]`
+    #         # Avoid using `asdict()` because it performs double traversal/deepcopy
+    #         if is_dataclass(value) and not isinstance(value, type):
+    #             return {
+    #                 f.name: walk(getattr(value, f.name), level + 1)
+    #                 for f in fields(value)
+    #             }
 
-            # 3. Containers -> always produce new containers (no mutation)
-            if isinstance(value, dict):
-                # Pylance lost the type parameters after isinstance. We restore them.
-                return {
-                    k: walk(v, level + 1)
-                    for k, v in cast("dict[str, Any]", value).items()
-                }
+    #         # 3. Containers -> always produce new containers (no mutation)
+    #         if isinstance(value, dict):
+    #             # Pylance lost the type parameters after isinstance. We restore them.
+    #             return {
+    #                 k: walk(v, level + 1)
+    #                 for k, v in cast("dict[str, Any]", value).items()
+    #             }
 
-            if isinstance(value, list):
-                # Restore the list[U] generic type parameter
-                return [walk(v, level + 1) for v in cast("list[U]", value)]
+    #         if isinstance(value, list):
+    #             # Restore the list[U] generic type parameter
+    #             return [walk(v, level + 1) for v in cast("list[U]", value)]
 
-            return value
+    #         return value
 
-        return walk(io, 0)
+    #     return walk(io, 0)
 
-    @overload
-    def convert_on_chain_io_to_dict2(self, io: dict[str, Any]) -> dict[str, Any]: ...
-    @overload
-    def convert_on_chain_io_to_dict2(
-        self, io: list[Command[Any]]
-    ) -> list[dict[str, Any]]: ...
+    # @overload
+    # def convert_on_chain_io_to_dict2(self, io: dict[str, Any]) -> dict[str, Any]: ...
+    # @overload
+    # def convert_on_chain_io_to_dict2(
+    #     self, io: list[Command[Any]]
+    # ) -> list[dict[str, Any]]: ...
 
-    def convert_on_chain_io_to_dict2(
-        self,
-        io: dict[str, Any] | list[Command[Any]],
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        convert_msg_to_dict: Callable[[BaseMessage], dict[str, Any]] = (
-            self._convert_message_to_dict
-        )
-        max_levels = 10
+    # def convert_on_chain_io_to_dict2(
+    #     self,
+    #     io: dict[str, Any] | list[Command[Any]],
+    # ) -> dict[str, Any] | list[dict[str, Any]]:
+    #     convert_msg_to_dict: Callable[[BaseMessage], dict[str, Any]] = (
+    #         self._convert_message_to_dict
+    #     )
+    #     max_levels = 10
 
-        def walk(
-            value: dict[str, Any] | list[Command[Any]] | Command[Any],
-            level: int,
-        ) -> Any:
-            if level > max_levels:
-                return value
+    #     def walk(
+    #         value: dict[str, Any] | list[Command[Any]] | Command[Any],
+    #         level: int,
+    #     ) -> Any:
+    #         if level > max_levels:
+    #             return value
 
-            # 1. `BaseMessage` to `Dict[str, Any]` before handling `dataclass`
-            if isinstance(value, BaseMessage):
-                return convert_msg_to_dict(value)
+    #         # 1. `BaseMessage` to `Dict[str, Any]` before handling `dataclass`
+    #         if isinstance(value, BaseMessage):
+    #             return convert_msg_to_dict(value)
 
-            # 2. `dataclass` instances field-by-field to `dict[str, Any]`
-            # Avoid using `asdict()` because it performs double traversal/deepcopy
-            if is_dataclass(value) and not isinstance(value, type):
-                return {
-                    f.name: walk(getattr(value, f.name), level + 1)
-                    for f in fields(value)
-                }
+    #         # 2. `dataclass` instances field-by-field to `dict[str, Any]`
+    #         # Avoid using `asdict()` because it performs double traversal/deepcopy
+    #         if is_dataclass(value) and not isinstance(value, type):
+    #             return {
+    #                 f.name: walk(getattr(value, f.name), level + 1)
+    #                 for f in fields(value)
+    #             }
 
-            # 3. Containers -> always produce new containers (no mutation)
-            if isinstance(value, dict):
-                # Keys intentionally not walked
-                return {k: walk(v, level + 1) for k, v in value.items()}
+    #         # 3. Containers -> always produce new containers (no mutation)
+    #         if isinstance(value, dict):
+    #             # Keys intentionally not walked
+    #             return {k: walk(v, level + 1) for k, v in value.items()}
 
-            if isinstance(value, list):
-                return [walk(v, level + 1) for v in value]
+    #         if isinstance(value, list):
+    #             return [walk(v, level + 1) for v in value]
 
-            return value
+    #         return value
 
-        return walk(io, 0)
+    #     return walk(io, 0)
 
 
 def _extract_raw_response(last_response: Any) -> Any:
@@ -1935,178 +1935,178 @@ def _strip_langfuse_keys_from_dict(
     return metadata_copy
 
 
-def _consolidate_tool_message_content_blocks(
-    tool_message: ToolMessage | FunctionMessage,
-) -> dict[str, Any]:
-    """Consolidate the `content_blocks` attribute of `tool_message` into a list that
-    follows the OpenResponses schema.
-    https://www.openresponses.org/reference
-    """
-    message_dict: dict[str, Any] = {
-        "type": "tool",
-        "role": "tool",
-    }
-    tool_message_consolidated: dict[str, Any] = {
-        "type": "tool_message",
-        "content": [],
-    }
+# def _consolidate_tool_message_content_blocks(
+#     tool_message: ToolMessage | FunctionMessage,
+# ) -> dict[str, Any]:
+#     """Consolidate the `content_blocks` attribute of `tool_message` into a list that
+#     follows the OpenResponses schema.
+#     https://www.openresponses.org/reference
+#     """
+#     message_dict: dict[str, Any] = {
+#         "type": "tool",
+#         "role": "tool",
+#     }
+#     tool_message_consolidated: dict[str, Any] = {
+#         "type": "tool_message",
+#         "content": [],
+#     }
 
-    if tool_message_name := tool_message.name:
-        tool_message_consolidated["name"] = tool_message_name
-        message_dict["name"] = tool_message_name
+#     if tool_message_name := tool_message.name:
+#         tool_message_consolidated["name"] = tool_message_name
+#         message_dict["name"] = tool_message_name
 
-    if tool_message_id := tool_message.id:
-        message_dict["id"] = tool_message_id
+#     if tool_message_id := tool_message.id:
+#         message_dict["id"] = tool_message_id
 
-    # `FunctionMessage` are an older version of the `ToolMessage` schema, and
-    # do not contain the `tool_call_id` field.
-    if tool_call_id := getattr(tool_message, "tool_call_id", None):
-        tool_message_consolidated["tool_call_id"] = tool_call_id
-        message_dict["tool_call_id"] = tool_call_id
+#     # `FunctionMessage` are an older version of the `ToolMessage` schema, and
+#     # do not contain the `tool_call_id` field.
+#     if tool_call_id := getattr(tool_message, "tool_call_id", None):
+#         tool_message_consolidated["tool_call_id"] = tool_call_id
+#         message_dict["tool_call_id"] = tool_call_id
 
-    for item in tool_message.content_blocks:
-        match item["type"]:
-            case "text":
-                text_block: dict[str, str] = {
-                    "text": item["text"],
-                    "type": "input_text",
-                }
+#     for item in tool_message.content_blocks:
+#         match item["type"]:
+#             case "text":
+#                 text_block: dict[str, str] = {
+#                     "text": item["text"],
+#                     "type": "input_text",
+#                 }
 
-                tool_message_consolidated["content"].append(text_block)
-            case "image":
-                img_block: dict[str, str] = {"type": "input_image"}
+#                 tool_message_consolidated["content"].append(text_block)
+#             case "image":
+#                 img_block: dict[str, str] = {"type": "input_image"}
 
-                if url := item.get("url"):
-                    img_block["image_url"] = url
-                elif (base64 := item.get("base64")) and (
-                    mime_type := item.get("mime_type")
-                ):
-                    img_block["image_url"] = f"data:{mime_type};base64,{base64}"
+#                 if url := item.get("url"):
+#                     img_block["image_url"] = url
+#                 elif (base64 := item.get("base64")) and (
+#                     mime_type := item.get("mime_type")
+#                 ):
+#                     img_block["image_url"] = f"data:{mime_type};base64,{base64}"
 
-                if detail := item.get("detail"):
-                    img_block["detail"] = detail
+#                 if detail := item.get("detail"):
+#                     img_block["detail"] = detail
 
-                tool_message_consolidated["content"].append(img_block)
-            case _:
-                pass
+#                 tool_message_consolidated["content"].append(img_block)
+#             case _:
+#                 pass
 
-    message_dict["content"] = [tool_message_consolidated]
-    return message_dict
+#     message_dict["content"] = [tool_message_consolidated]
+#     return message_dict
 
 
-def _consolidate_message_content_blocks(
-    content_blocks: list[content.ContentBlock],
-    msg_type: type[BaseMessage],
-    role: str,
-) -> list[Any]:
-    """Consolidate the `content_blocks` attribute of the message into a list that follows the OpenResponses schema.
-    https://www.openresponses.org/reference
+# def _consolidate_message_content_blocks(
+#     content_blocks: list[content.ContentBlock],
+#     msg_type: type[BaseMessage],
+#     role: str,
+# ) -> list[Any]:
+#     """Consolidate the `content_blocks` attribute of the message into a list that follows the OpenResponses schema.
+#     https://www.openresponses.org/reference
 
-    """
-    reasoning_blocks_merged_by_id: dict[str, Any] = {}
-    blocks_merged_by_id: dict[str, Any] = {}
-    out: list[Any] = []
+#     """
+#     reasoning_blocks_merged_by_id: dict[str, Any] = {}
+#     blocks_merged_by_id: dict[str, Any] = {}
+#     out: list[Any] = []
 
-    for item in content_blocks:
-        match item["type"]:
-            case "reasoning":
-                item_id: str = item.get("id", f"rs_{uuid4()}")
+#     for item in content_blocks:
+#         match item["type"]:
+#             case "reasoning":
+#                 item_id: str = item.get("id", f"rs_{uuid4()}")
 
-                merged: Any | None = reasoning_blocks_merged_by_id.get(item_id)
-                if merged is None:
-                    merged_reasoning_block: dict[str, Any] = {
-                        "type": "reasoning",
-                        "id": item_id,
-                    }
+#                 merged: Any | None = reasoning_blocks_merged_by_id.get(item_id)
+#                 if merged is None:
+#                     merged_reasoning_block: dict[str, Any] = {
+#                         "type": "reasoning",
+#                         "id": item_id,
+#                     }
 
-                    if reasoning := item.get("reasoning"):
-                        merged_reasoning_block["summary"] = [
-                            {"text": reasoning, "type": "summary_text"}
-                        ]
+#                     if reasoning := item.get("reasoning"):
+#                         merged_reasoning_block["summary"] = [
+#                             {"text": reasoning, "type": "summary_text"}
+#                         ]
 
-                    if encrypted_content := item.get("encrypted_content"):
-                        merged_reasoning_block["encrypted_content"] = encrypted_content
+#                     if encrypted_content := item.get("encrypted_content"):
+#                         merged_reasoning_block["encrypted_content"] = encrypted_content
 
-                    out.append(merged_reasoning_block)
-                    reasoning_blocks_merged_by_id[item_id] = merged_reasoning_block
-                elif reasoning := item.get("reasoning"):
-                    merged["summary"].append({
-                        "text": reasoning,
-                        "type": "summary_text",
-                    })
-            case "text":
-                item_id: str = item.get("id", f"msg_{uuid4()}")
-                text_block: dict[str, str] = {
-                    "text": item["text"],
-                    "type": _LANGCHAIN_TO_OPEN_RESPONSES_TYPES[msg_type, "text"],
-                }
+#                     out.append(merged_reasoning_block)
+#                     reasoning_blocks_merged_by_id[item_id] = merged_reasoning_block
+#                 elif reasoning := item.get("reasoning"):
+#                     merged["summary"].append({
+#                         "text": reasoning,
+#                         "type": "summary_text",
+#                     })
+#             case "text":
+#                 item_id: str = item.get("id", f"msg_{uuid4()}")
+#                 text_block: dict[str, str] = {
+#                     "text": item["text"],
+#                     "type": _LANGCHAIN_TO_OPEN_RESPONSES_TYPES[msg_type, "text"],
+#                 }
 
-                merged: Any | None = blocks_merged_by_id.get(item_id)
-                if merged is None:
-                    merged_text_block: dict[str, Any] = {
-                        "type": "message",
-                        "role": role,
-                        "id": item_id,
-                        "content": [text_block],
-                    }
+#                 merged: Any | None = blocks_merged_by_id.get(item_id)
+#                 if merged is None:
+#                     merged_text_block: dict[str, Any] = {
+#                         "type": "message",
+#                         "role": role,
+#                         "id": item_id,
+#                         "content": [text_block],
+#                     }
 
-                    out.append(merged_text_block)
-                    blocks_merged_by_id[item_id] = merged_text_block
-                else:
-                    merged["content"].append(text_block)
-            case "image":
-                item_id: str = item.get("id", f"msg_{uuid4()}")
-                img_block: dict[str, Any] = {
-                    "type": _LANGCHAIN_TO_OPEN_RESPONSES_TYPES[msg_type, "image"]
-                }
-                if image_url := item.get("image_url"):
-                    img_block["image_url"] = image_url
-                elif (base64 := item.get("base64")) and (
-                    mime_type := item.get("mime_type")
-                ):
-                    img_block["image_url"] = f"data:{mime_type};base64,{base64}"
+#                     out.append(merged_text_block)
+#                     blocks_merged_by_id[item_id] = merged_text_block
+#                 else:
+#                     merged["content"].append(text_block)
+#             case "image":
+#                 item_id: str = item.get("id", f"msg_{uuid4()}")
+#                 img_block: dict[str, Any] = {
+#                     "type": _LANGCHAIN_TO_OPEN_RESPONSES_TYPES[msg_type, "image"]
+#                 }
+#                 if image_url := item.get("image_url"):
+#                     img_block["image_url"] = image_url
+#                 elif (base64 := item.get("base64")) and (
+#                     mime_type := item.get("mime_type")
+#                 ):
+#                     img_block["image_url"] = f"data:{mime_type};base64,{base64}"
 
-                if detail := item.get("detail"):
-                    img_block["detail"] = detail
+#                 if detail := item.get("detail"):
+#                     img_block["detail"] = detail
 
-                merged: Any | None = blocks_merged_by_id.get(item_id)
-                if merged is None:
-                    merged_block: dict[str, Any] = {
-                        "type": "message",
-                        "role": role,
-                        "id": item_id,
-                        "content": [img_block],
-                    }
+#                 merged: Any | None = blocks_merged_by_id.get(item_id)
+#                 if merged is None:
+#                     merged_block: dict[str, Any] = {
+#                         "type": "message",
+#                         "role": role,
+#                         "id": item_id,
+#                         "content": [img_block],
+#                     }
 
-                    out.append(merged_block)
-                    blocks_merged_by_id[item_id] = merged_block
-                else:
-                    merged["output"].append(img_block)
-            case "tool_call":
-                function_call_block: dict[str, Any] = {
-                    # "call_id": call_id,
-                    "type": "function_call",
-                    "name": item["name"],
-                    "arguments": item["args"],
-                }
+#                     out.append(merged_block)
+#                     blocks_merged_by_id[item_id] = merged_block
+#                 else:
+#                     merged["output"].append(img_block)
+#             case "tool_call":
+#                 function_call_block: dict[str, Any] = {
+#                     # "call_id": call_id,
+#                     "type": "function_call",
+#                     "name": item["name"],
+#                     "arguments": item["args"],
+#                 }
 
-                if call_id := item.get("id"):
-                    function_call_block["call_id"] = call_id
-                # call_id: str | None = item["id"]
-                # if call_id is None:
-                #     call_id = f"call_{uuid.uuid4()}"
+#                 if call_id := item.get("id"):
+#                     function_call_block["call_id"] = call_id
+#                 # call_id: str | None = item["id"]
+#                 # if call_id is None:
+#                 #     call_id = f"call_{uuid.uuid4()}"
 
-                if (extras := item.get("extras")) and (
-                    item_id := extras.get("item_id")
-                ):
-                    function_call_block["id"] = item_id
+#                 if (extras := item.get("extras")) and (
+#                     item_id := extras.get("item_id")
+#                 ):
+#                     function_call_block["id"] = item_id
 
-                out.append(function_call_block)
+#                 out.append(function_call_block)
 
-            case _:
-                pass
+#             case _:
+#                 pass
 
-    return out
+#     return out
 
 
 # def _convert_tool_start_to_input_list(
