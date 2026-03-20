@@ -37,7 +37,7 @@ autoevals = "^0.0.130"
 opentelemetry-instrumentation-threading = "^0.59b0"
 
 [tool.poetry.group.docs.dependencies]
-pdoc = "^15.0.4"
+pdoc = ">=15.0.4,<17.0.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
